@@ -110,7 +110,17 @@ pub fn rolling_average_decemation(data: &Vec<Vec<Complex<f32>>>, avg_len: usize)
     out
 }
 
-pub fn single_rolling_max_decemation(data: &Vec<f32>, avg_len: usize) -> Vec<f32>{
+pub fn block_average_decemation(data: &Vec<f32>, avg_len: usize) -> Vec<f32>{
+    let mut out = Vec::new();
+        for t in 0..data.len()/avg_len - 1{
+            let mut avg = data[t * avg_len..(t + 1) * avg_len].iter().sum::<f32>() / avg_len as f32;
+            out.push(avg);
+        }
+
+    out
+}
+
+pub fn block_max_decemation(data: &Vec<f32>, avg_len: usize) -> Vec<f32>{
     //HORRIFICLLY SLOW CODE
     //WORKS THO
     //UPDATE TO USE SORT AND A STACK OF MAX VALUES
