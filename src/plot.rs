@@ -15,7 +15,6 @@ use crate::T_RES;
 use crate::F_RES;
 use crate::STRINGS;
 
-
 use crate::NotePeak;
 use crate::NotesToIndex;
 use crate::Peaks;

@@ -21,110 +21,18 @@ use crate::STRINGS;
 use crate::post_processing::block_average_decemation;
 use crate::post_processing::block_max_decemation;
 
-pub fn threaded_dtft_and_conv_add(song: &Vec<i16>,
-                              sample_ffts: &Vec<Vec<Vec<Complex<f32>>>>,
-                              window: &Vec<f32>
-                              ) -> Vec<Vec<Vec<f32>>>{
-    
-    let mut chunks_of_the_song: Vec<Vec<i16>> = vec![];
-    let mut chunk_lenght = song.len() / THREADS;
-
-    for c in 0..THREADS{
-        chunks_of_the_song.push(song[c*chunk_lenght..(c+1)*chunk_lenght].to_vec());
-    }
-
-    let mut handles = vec![]; 
-    for i in 0..THREADS{
-        let gas = chunks_of_the_song[i].clone();
-        let win = window.clone();
-        let sam = sample_ffts.clone();
-        handles.push(thread::spawn(move || {
-            dtft_and_conv_add(&gas, &sam, &win)
-        }));
-    }
-
-    let mut joined_data: Vec<Vec<Vec<f32>>> = vec![vec![Vec::new();sample_ffts[0].len()]; 6];
-    for handle in handles{ 
-        let tmp = handle.join().unwrap(); 
-        
-        for string in 0..6{
-        for note in 0..sample_ffts[0].len(){
-            joined_data[string][note].extend(&tmp[string][note]);
-        }
-        }
-    }
-
-    println!("threaded dtft and conv done!");
-    joined_data
-}
-
-//THESE TWO DONT JIVE, E2 has an erronious bump 
-pub fn dtft_and_conv_add(input_chunk: &Vec<i16>,
-                     sample_ffts: &Vec<Vec<Vec<Complex<f32>>>>,
-                     window: &Vec<f32>
-                     ) -> Vec<Vec<Vec<f32>>>{ 
-  
-    let mut final_buffer = vec![vec![Vec::<f32>::new(); sample_ffts[0][0].len()];6];
-    let mut planner = FftPlanner::<f32>::new();
-    let fft = planner.plan_fft_forward(NFFT*2);
-    let ifft = planner.plan_fft_inverse(NFFT*2);
-   
-    let out = sample_ffts.clone();
-    let chunk_lenght = input_chunk.len();
-    let num_of_chunks = chunk_lenght / SAMPLE * INTERPOL - INTERPOL;
-
-    let mut sf = sample_ffts.clone();
-    for string in 0..sample_ffts.len(){
-        for note in 0..sample_ffts[0].len(){
-            let mut pesma_fft = vec![Complex{ re: 0.0, im: 0.0}; NFFT*2];
-            sf[string][note].extend(pesma_fft);
-        }
-    }
-             
-    for string in 0..sample_ffts.len(){
-        for note in 0..sample_ffts[0].len(){
-            let mut carry = vec![0.0; NFFT];
-
-            for c in 0..num_of_chunks{
-                let mut pesma_fft = vec![Complex{ re: 0.0, im: 0.0}; NFFT*2];
-                for i in 0..NFFT{
-                    pesma_fft[i].re = (input_chunk[c*SAMPLE/INTERPOL + i % SAMPLE] as f32) * window[i%SAMPLE] / 65536.0;
-                }
-  
-                fft.process(&mut pesma_fft);
-    
-                let mut s_buffer = vec![Complex{ re: 0.0, im: 0.0}; NFFT*2];
-                s_buffer = pesma_fft.iter().zip(sf[string][note].iter())
-                .map(|(x,y)| x*y.conj()).collect();
-     
-                ifft.process(&mut s_buffer);
-                
-                //BAD
-
-                let mut out: Vec<f32> = s_buffer.iter().map(|a| a.norm()).collect();
-                for i in 0..NFFT / 2{
-                    out[i] += carry[i];
-                    carry[i] = out[i + NFFT*3/2];
-                } 
-                // decemate here; save RAM
-                let decemated = block_max_decemation(&out[0..NFFT*3/2].to_vec(), AVG_LEN); 
-
-                final_buffer[string][note].extend(decemated);
-            }
-        }
-    }
-
-  println!("dtft and conv done!");
-  final_buffer 
-}
+const broj_zica: usize = 6;
+const broj_pragova: usize = 22;
 
 pub fn threaded_dtft_and_conv(song: &Vec<i16>,
                               sample_ffts: &Vec<Vec<Vec<Complex<f32>>>>,
                               window: &Vec<f32>,
                               convolution_type: &str
                               ) -> Vec<Vec<Vec<f32>>>{
-       let mut chunks_of_the_song: Vec<Vec<i16>> = vec![];
-    let mut chunk_lenght = song.len() / THREADS;
+    let mut chunks_of_the_song: Vec<Vec<i16>> = vec![];
+
+    let mut chunk_lenght = (song.len() / THREADS) / SAMPLE;
+    chunk_lenght = chunk_lenght * SAMPLE;
 
     for c in 0..THREADS{
         chunks_of_the_song.push(song[c*chunk_lenght..(c+1)*chunk_lenght].to_vec());
@@ -141,12 +49,12 @@ pub fn threaded_dtft_and_conv(song: &Vec<i16>,
         }));
     }
 
-    let mut joined_data: Vec<Vec<Vec<f32>>> = vec![vec![Vec::new();sample_ffts[0].len()]; 6];
+    let mut joined_data: Vec<Vec<Vec<f32>>> = vec![vec![Vec::new(); broj_pragova]; broj_zica];
     for handle in handles{ 
         let tmp = handle.join().unwrap(); 
         
-        for string in 0..6{
-            for note in 0..sample_ffts[0].len(){
+        for string in 0..tmp.len(){
+            for note in 0..tmp[string].len(){
                 joined_data[string][note].extend(&tmp[string][note]);
             }
         }
@@ -163,43 +71,48 @@ pub fn dtft_and_conv(input_chunk: &Vec<i16>,
                      ) -> Vec<Vec<Vec<f32>>>{ 
      
     let mut start_index: usize = 0;
-    let mut stop_index: usize = NFFT;
-    let mut nfft: usize = NFFT;
-
+    let mut stop_index: usize = SAMPLE;
+    let mut nfft: usize = SAMPLE;
+    /*
     if convolution_type == "circular"{
         start_index = 0;
-        stop_index = NFFT;
-        nfft = NFFT;
+        stop_index = SAMPLE;
+        nfft = SAMPLE;
     }else if convolution_type == "save"{
-        start_index = NFFT;
-        stop_index = NFFT * 2;
-        nfft = NFFT * 2;
+        start_index = SAMPLE;
+        stop_index = SAMPLE * 2;
+        nfft = SAMPLE * 2;
+    }else if convolution_type == "add"{
+        start_index = 0;
+        stop_index = SAMPLE *2;
+        nfft = SAMPLE * 2;
     }
+    */
 
-    let mut final_buffer = vec![vec![Vec::<f32>::new(); sample_ffts[0][0].len()];6];
+    let mut final_buffer = vec![vec![Vec::<f32>::new(); broj_pragova]; broj_zica];
     let mut planner = FftPlanner::<f32>::new();
     let fft = planner.plan_fft_forward(nfft);
     let ifft = planner.plan_fft_inverse(nfft);
-    
+     
     let mut sf = sample_ffts.clone();
     for string in 0..sample_ffts.len(){
         for note in 0..sample_ffts[0].len(){
-            let mut pesma_fft = vec![Complex{ re: 0.0, im: 0.0}; nfft];
+            let mut pesma_fft = vec![Complex{ re: 0.0, im: 0.0}; nfft - SAMPLE];
             sf[string][note].extend(pesma_fft);
         }
     }
+    
 
-    let out = sample_ffts.clone();
     let chunk_lenght = input_chunk.len();
-    let num_of_chunks = chunk_lenght / SAMPLE * INTERPOL - INTERPOL;
+    let num_of_chunks: usize = chunk_lenght / SAMPLE;
 
     for c in 0..num_of_chunks{
         let mut pesma_fft = vec![Complex{ re: 0.0, im: 0.0}; nfft];
       
         for i in 0..SAMPLE{
-            pesma_fft[i].re = (input_chunk[c*SAMPLE/INTERPOL + i] as f32) * window[i] / 65536.0;
+            pesma_fft[i].re = (input_chunk[c*SAMPLE+ i] as f32) * window[i] / 65536.0;
         }
-  
+        
         fft.process(&mut pesma_fft);
     
         for string in 0..sample_ffts.len(){
@@ -211,12 +124,11 @@ pub fn dtft_and_conv(input_chunk: &Vec<i16>,
      
                 ifft.process(&mut s_buffer);
 
-                let out: Vec<f32> = s_buffer[start_index..stop_index].iter().map(|a| a.norm()).collect();
-      
+                let current: Vec<f32> = s_buffer[start_index..stop_index].iter().map(|a| a.norm()).collect();
+                
                 // decemate here; save RAM
-                let out = block_max_decemation(&out, AVG_LEN); 
-
-                final_buffer[string][note].extend(out);
+                let decemeted= block_max_decemation(&current, AVG_LEN); 
+                final_buffer[string][note].extend(decemeted);
             }
         }
     }
@@ -225,7 +137,21 @@ pub fn dtft_and_conv(input_chunk: &Vec<i16>,
   final_buffer 
 }
 
-pub fn dtft_f32(input_chunk: &Vec<f32>,
+pub trait unsinkable{
+    fn to_float(&self) -> f32;
+}
+
+impl unsinkable for i32{
+    fn to_float(&self) -> f32 { 
+        *self as f32
+    }
+}
+
+fn num_to_float<T: unsinkable>(input: T) -> f32{
+    input.to_float()
+}
+
+pub fn dtft<T: unsinkable>(input_chunk: &Vec<T>,
             window: &Vec<f32>
             ) -> Vec<f32>{ 
     
@@ -236,30 +162,13 @@ pub fn dtft_f32(input_chunk: &Vec<f32>,
     let mut pesma_fft = vec![Complex{ re: 0.0, im: 0.0}; NFFT];
       
     for i in 0..SAMPLE{
-        pesma_fft[i].re = (input_chunk[c*SAMPLE + i]) * window[i];
+        pesma_fft[i].re = (input_chunk[c*SAMPLE + i].to_float()) * window[i];
     }
   
     fft.process(&mut pesma_fft);
     pesma_fft[0..NFFT/16].iter().map(|x| x.norm()).collect()
 }
 
-pub fn dtft(input_chunk: &Vec<i16>,
-            window: &Vec<f32>
-            ) -> Vec<f32>{ 
-    
-    let mut planner = FftPlanner::<f32>::new();
-    let fft = planner.plan_fft_forward(NFFT);
-    
-    let c: usize = 0;
-    let mut pesma_fft = vec![Complex{ re: 0.0, im: 0.0}; NFFT];
-      
-    for i in 0..SAMPLE{
-        pesma_fft[i].re = (input_chunk[c*SAMPLE + i] as f32) * window[i];
-    }
-  
-    fft.process(&mut pesma_fft);
-    pesma_fft[0..NFFT/16].iter().map(|x| x.norm()).collect()
-}
 
 pub fn threaded_conv(fft_data: &Vec<Vec<Complex<f32>>>,
                 sample_ffts: &Vec<Vec<Complex<f32>>>,
@@ -425,17 +334,18 @@ pub fn calculate_window_function(n: usize, wt: &str) -> Vec<f32>{
     out
 }
 
-pub fn open_song(filename: &str, percent: f32) -> Vec<i16>{
+pub fn open_song(filename: &str, seconds: f32) -> Vec<i16>{
     let mut fajl_pesme = File::open(Path::new(filename)).unwrap();
     let (header, pesma) = wav::read(&mut fajl_pesme).unwrap();
 
     if !pesma.is_sixteen(){ panic!("Wav file : {filename} isn't 16 bit! "); }
-    let data = pesma.as_sixteen().unwrap().to_vec();
+
+    let song_samples = (seconds * 44100.0) as usize;
+
+    let data = pesma.as_sixteen().unwrap()[0..song_samples].to_vec();
      
     println!("song loaded!");
-    let tmp_len = ((data.len() as f32 * percent) as usize);
-    let len = tmp_len - tmp_len % SAMPLE;
-    data[0..len].to_vec()
+    data
 }
 
 
