@@ -1,31 +1,4 @@
 /**
-let mut all_notes: Vec<Note> = Vec::new();
-    let mut counter = 0;
-    for string in STRINGS.iter().rev(){
-        for n in 0..20{
-            let mut name = String::from(*string);
-            name.push_str(&n.to_string());
-            println!("{name}");
-            all_notes.push(Note{ name: name, freq: HERZ[offset_table[counter] + n].parse().unwrap(), harmonics: Vec::new()});
-        }
-        counter += 1;
-    }
-
-    for note in 0..all_notes.len(){
-        for rev in note..all_notes.len(){
-            let f1 = all_notes[rev].freq;
-            let f2 = all_notes[note].freq;
-            let r = f1 / f2;
-            let m = r - r.floor();
-
-            if m < 0.01 && r > 1.5{
-                all_notes[note].harmonics.push(rev);
-                println!("{:?} is {r}th harmonic of", all_notes[rev]);
-                println!("{:?}\n", all_notes[note]);
-            }
-        }
-    }
-
 */
 
 
@@ -38,12 +11,4 @@ let mut all_notes: Vec<Note> = Vec::new();
 // rešenje: možda oduzeti grafike: B0 -= E0 * faktor_harmonika
 //
 //
-
-#[derive(Debug,Clone)]
-struct Note{
-    name: String,
-    freq: f32,
-    harmonics: Vec<usize>,
-}
-
 

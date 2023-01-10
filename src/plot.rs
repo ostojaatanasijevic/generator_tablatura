@@ -20,7 +20,7 @@ use crate::NotesToIndex;
 use crate::Peaks;
 
 pub fn single_plot_data_norm(data: Vec<f32>){
-    draw_plot("plots/plot.png",data.to_vec(), T_RES as f32, 1).unwrap();
+    draw_plot("plots/plot0.png",data.to_vec(), T_RES as f32, 1).unwrap();
 }
 
 pub fn plot_data_norm(data: Vec<Vec<Vec<f32>>>){
@@ -47,10 +47,10 @@ pub fn plot_data(data: Vec<Vec<Complex<f32>>>){
 }
 
 pub fn draw_plot(plot_name: &str, data: Vec<f32>,
-             mul: f32, div: usize) -> Result<(), Box<dyn std::error::Error>> {
+             time: f32, div: usize) -> Result<(), Box<dyn std::error::Error>> {
     let root = BitMapBackend::new(plot_name, (1024, 768)).into_drawing_area();
     let mut freq: Vec<f32> = Vec::new();
-    let max = 1.0;
+    let max = 10000.0;
     let temp: Vec<f32> = vec![0.0,max];
     let max = temp.iter().max_by(|a, b| a.total_cmp(b)).unwrap();
     let max = data.iter().max_by(|a, b| a.total_cmp(b)).unwrap();
@@ -67,7 +67,7 @@ pub fn draw_plot(plot_name: &str, data: Vec<f32>,
         .configure_mesh()
         .disable_x_mesh()
         .disable_y_mesh()
-        .x_label_formatter(&|x| format!("{}", (*x as f32 * mul) as f32))
+        .x_label_formatter(&|x| format!("{}", (*x as f32 * time) as f32))
         .draw()?;
 
     chart.draw_series(

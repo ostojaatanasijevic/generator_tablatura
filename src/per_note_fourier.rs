@@ -149,7 +149,6 @@ pub fn dtft<T: unsinkable>(input_chunk: &Vec<T>,
     fft.process(&mut pesma_fft);
     pesma_fft[0..NFFT/16].iter().map(|x| x.norm()).collect()
 }
-
 pub fn calculate_sample_note(note: &Note,
                              window: &Vec<f32>,
                              nfft: usize,
@@ -171,7 +170,7 @@ pub fn calculate_sample_note(note: &Note,
     let mut planner = FftPlanner::<f32>::new();
     let fft = planner.plan_fft_forward(nfft + padd);
 
-    let mut fft_data = vec![Complex{ re: 0.0, im: 0.0};nfft + padd];
+    let mut fft_data = vec![Complex{ re: 0.0, im: 0.0}; nfft + padd];
     for i in 0..nfft{
         fft_data[i].re = (data[i] as f32) * window[i] / 65536.0;
     }
