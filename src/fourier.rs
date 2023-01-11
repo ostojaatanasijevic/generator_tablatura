@@ -122,7 +122,7 @@ pub trait unsinkable{
     fn to_float(&self) -> f32;
 }
 
-impl unsinkable for i32{
+impl unsinkable for i16{
     fn to_float(&self) -> f32 { 
         *self as f32
     }
@@ -133,28 +133,25 @@ fn num_to_float<T: unsinkable>(input: T) -> f32{
 }
 
 pub fn dtft<T: unsinkable>(input_chunk: &Vec<T>,
-            window: &Vec<f32>
+            window: &Vec<f32>,
+            nfft: usize
             ) -> Vec<f32>{ 
     
     let mut planner = FftPlanner::<f32>::new();
-    let fft = planner.plan_fft_forward(NFFT);
+    let fft = planner.plan_fft_forward(nfft);
     
     let c: usize = 0;
-    let mut pesma_fft = vec![Complex{ re: 0.0, im: 0.0}; NFFT];
+    let mut pesma_fft = vec![Complex{ re: 0.0, im: 0.0}; nfft];
       
     for i in 0..SAMPLE{
         pesma_fft[i].re = (input_chunk[c*SAMPLE + i].to_float()) * window[i];
     }
   
     fft.process(&mut pesma_fft);
-    pesma_fft[0..NFFT/16].iter().map(|x| x.norm()).collect()
+    pesma_fft.iter().map(|x| x.norm()).collect()
 }
 
-pub fn calculate_sample_note(note: &Note,
-                             window: &Vec<f32>,
-                             nfft: usize,
-                             padd: usize) -> Vec<Complex<f32>>{
-    
+pub fn open_sample_note(note: &Note) -> Vec<i16> {
     let mut filename = String::from("midi/");
     filename.push_str(&note.name[0..1]);
     filename.push_str("/");
@@ -168,6 +165,57 @@ pub fn calculate_sample_note(note: &Note,
     let data = raw_data.as_sixteen()
         .expect(&format!("Wav file : {filename} isn't 16 bit!"));
 
+    data.to_vec() 
+}
+
+pub fn cross_corr_notes(first: &Note,
+                        second: &Note,
+                        window: &Vec<f32>,
+                        nfft: usize,
+                        padd: usize) -> Vec<f32>{
+
+    let first_data = open_sample_note(&first);
+    let second_data = open_sample_note(&second);
+
+    let mut planner = FftPlanner::<f32>::new();
+    let fft = planner.plan_fft_forward(nfft + padd);
+    let ifft = planner.plan_fft_inverse(nfft + padd);
+
+    let mut first_fft_data = vec![Complex{ re: 0.0, im: 0.0};nfft + padd];
+    let mut second_fft_data = vec![Complex{ re: 0.0, im: 0.0};nfft + padd];
+    for i in 0..nfft{
+        first_fft_data[i].re = (first_data[i] as f32) * window[i] / 65536.0;
+        second_fft_data[i].re = (second_data[i] as f32) * window[i] / 65536.0;
+    }
+
+    fft.process(&mut first_fft_data);
+    fft.process(&mut second_fft_data);
+ 
+    let mut s_buffer = vec![Complex{ re: 0.0, im: 0.0}; nfft];
+    s_buffer = first_fft_data.iter().zip(second_fft_data.iter())
+                .map(|(x,y)| x*y.conj()).collect();
+     
+    ifft.process(&mut s_buffer);
+    let mut out: Vec<f32> = s_buffer.iter().map(|a| a.norm()).collect();
+
+    out 
+}
+
+pub fn average(data: &Vec<f32>) -> f32{
+    let mut out = 0.0; 
+    for bit in data{
+        out += bit;
+    }
+    out
+}
+
+pub fn calculate_sample_note(note: &Note,
+                             window: &Vec<f32>,
+                             nfft: usize,
+                             padd: usize) -> Vec<Complex<f32>>{
+    
+    let data = open_sample_note(&note); 
+        
     let mut planner = FftPlanner::<f32>::new();
     let fft = planner.plan_fft_forward(nfft + padd);
 

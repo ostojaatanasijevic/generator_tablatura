@@ -50,7 +50,7 @@ pub fn draw_plot(plot_name: &str, data: Vec<f32>,
              time: f32, div: usize) -> Result<(), Box<dyn std::error::Error>> {
     let root = BitMapBackend::new(plot_name, (1024, 768)).into_drawing_area();
     let mut freq: Vec<f32> = Vec::new();
-    let max = 10000.0;
+    let max = 1.0;
     let temp: Vec<f32> = vec![0.0,max];
     let max = temp.iter().max_by(|a, b| a.total_cmp(b)).unwrap();
     let max = data.iter().max_by(|a, b| a.total_cmp(b)).unwrap();

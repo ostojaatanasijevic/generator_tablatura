@@ -11,6 +11,7 @@ use std::io::IoSlice;
 use std::time::Instant;
 use std::fs::File;
 use std::thread;
+use std::env;
 use std::path::Path;
 use std::error::Error;
 use std::f32::consts::PI;
@@ -72,14 +73,17 @@ pub const HERZ: [&str; 44] = [ "82.41", "87.31","92.5","98.0","103.83","110.0","
 pub struct Note{
     name: String,
     freq: f32,
-    harmonics: Vec<usize>,
+    harmonics_before: Vec<(usize, f32)>,
+    harmonics_after: Vec<(usize, f32)>,
 }
 
 const offset_table: [usize; 6] = [0,5,10,15,19,24];
 
 fn main(){
-    //ADD THREAD DETECTION FOR INDIVIDUAL CPUs
-
+    let args: Vec<String> = env::args().collect();
+    let song = fourier::open_song(&args[1], 15.0);
+    let window = fourier::calculate_window_function(SAMPLE, "hann");
+    
     let mut all_notes: Vec<Note> = Vec::new();
     let mut counter = 0;
     for string in STRINGS.iter().rev(){
@@ -87,12 +91,32 @@ fn main(){
             let mut name = String::from(*string);
             name.push_str(&n.to_string());
             println!("{name}");
-            all_notes.push(Note{ name: name, freq: HERZ[offset_table[counter] + n].parse().unwrap(), harmonics: Vec::new()});
+            all_notes.push(Note{ name: name, freq: HERZ[offset_table[counter] + n].parse().unwrap(), harmonics_before: Vec::new(), harmonics_after: Vec::new()});
         }
         counter += 1;
     }
 
     for note in 0..all_notes.len(){
+        for rev in 0..note{
+            let f1 = all_notes[rev].freq;
+            let f2 = all_notes[note].freq;
+            let r = f2 / f1;
+            let m = r - r.floor();
+
+            if (m < 0.1 && r > 1.5) || (m > 0.9 && r > 1.5){
+                let autocorrelate = fourier::cross_corr_notes(&all_notes[note], &all_notes[note], &window, SAMPLE, 0);
+                let target_corralate = fourier::cross_corr_notes(&all_notes[note], &all_notes[rev], &window, SAMPLE, 0);
+
+                let autocorrelate = fourier::average(&autocorrelate);
+                let target_corralate = fourier::average(&target_corralate);
+
+                let ratio = target_corralate / autocorrelate;
+
+                all_notes[note].harmonics_before.push((rev, ratio));
+                println!("{:?} is {r}th harmonic of", all_notes[note]);
+                println!("{:?}\n", all_notes[rev]);
+            }
+        }
         for rev in note..all_notes.len(){
             let f1 = all_notes[rev].freq;
             let f2 = all_notes[note].freq;
@@ -100,22 +124,45 @@ fn main(){
             let m = r - r.floor();
 
             if (m < 0.1 && r > 1.5) || (m > 0.9 && r > 1.5){
-                all_notes[note].harmonics.push(rev);
+                let autocorrelate = fourier::cross_corr_notes(&all_notes[note], &all_notes[note], &window, SAMPLE, 0);
+                let target_corralate = fourier::cross_corr_notes(&all_notes[note], &all_notes[rev], &window, SAMPLE, 0);
+
+                let autocorrelate = fourier::average(&autocorrelate);
+                let target_corralate = fourier::average(&target_corralate);
+
+                let ratio = target_corralate / autocorrelate;
+
+                all_notes[note].harmonics_after.push((rev, ratio));
                 println!("{:?} is {r}th harmonic of", all_notes[rev]);
                 println!("{:?}\n", all_notes[note]);
             }
         }
     }
+    //ADD THREAD DETECTION FOR INDIVIDUAL CPUs
+    let sample_ffts = legacy_fourier::calculate_sample_ffts(&window, SAMPLE, 0);
+    let mut note_intensity = legacy_fourier::convolution_per_note(&song, &sample_ffts, &window, "circular");
 
-    let song_data = fourier::open_song("songs/januar.wav", 10.0);
-    println!("broj samplova pesme je: {}", song_data.len());
- 
-    let song = fourier::open_song("songs/januar.wav", 10.0);
-    let window = fourier::calculate_window_function(SAMPLE, "hann");
-    let sample_ffts = legacy_fourier::calculate_sample_ffts(&window, SAMPLE);
+    //ratio is target / autocorrelation
+    //time for de noisning
+    //problem, missing cause and effect, determine source, then remove harmonics
+    
+    for note in 0..120{
+        for hb in all_notes[note].harmonics_before.iter(){
+            for t in 0..note_intensity[0][0].len(){
+                note_intensity[hb.0 / 20][hb.0 % 20][t] -= note_intensity[note / 20][note % 20][t] * hb.1;
+                //note_intensity[note / 20][note % 20][t] -=   note_intensity[hb.0 / 20][hb.0 % 20][t] * hb.1;
+            }
+            println!("Attenuating {:?} with {:?} and a ratio of {}", &all_notes[hb.0], &all_notes[note], hb.1);
+        }
+        for hb in all_notes[note].harmonics_after.iter(){
+            for t in 0..note_intensity[0][0].len(){
+//                    note_intensity[hb.0 / 20][hb.0 % 20][t] -= note_intensity[note / 20][note % 20][t] * hb.1;
+//                note_intensity[note / 20][note % 20][t]-=   note_intensity[hb.0 / 20][hb.0 % 20][t] * hb.1; 
+            }
+        }
+    }
 
-    let mut note_intensity = legacy_fourier::threaded_dtft_and_conv(&song, &sample_ffts, &window, "circular");
-    /* 
+   /* 
     for i in 0..20{
         for t in 0..note_intensity[0][0].len(){
             note_intensity[0][i][t] -= note_intensity[5][i][t] / 5.0;
@@ -123,5 +170,30 @@ fn main(){
     }
     */
 
+    //let note_intensity = post_processing::process_of_elimination(&note_intensity);
+
     plot::plot_data_norm(note_intensity);
 }
+
+/*
+    let note = fourier::open_song("midi/e/e0.wav", 0.5);
+    let mut first = fourier::dtft(&note, &window, SAMPLE);
+    plot::draw_plot("plots/e0.png" ,first[0..SAMPLE/16].to_vec(), 1.0, 1);
+
+    let note = fourier::open_song("midi/A/A7.wav", 0.5);
+    let mut first = fourier::dtft(&note, &window, SAMPLE);
+    plot::draw_plot("plots/A7.png" ,first[0..SAMPLE/16].to_vec(), 1.0, 1);
+
+    let mut first = fourier::dtft(&song, &window, SAMPLE);
+    plot::draw_plot("plots/song.png" ,first[0..SAMPLE/16].to_vec(), 1.0, 1);
+ 
+*/
+
+
+
+
+
+
+
+
+

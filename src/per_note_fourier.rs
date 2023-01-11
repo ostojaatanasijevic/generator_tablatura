@@ -149,6 +149,7 @@ pub fn dtft<T: unsinkable>(input_chunk: &Vec<T>,
     fft.process(&mut pesma_fft);
     pesma_fft[0..NFFT/16].iter().map(|x| x.norm()).collect()
 }
+
 pub fn calculate_sample_note(note: &Note,
                              window: &Vec<f32>,
                              nfft: usize,

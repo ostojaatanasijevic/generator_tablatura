@@ -1,0 +1,8 @@
+Napravi tuxguitar simulaciju u nota: E0 E1 E2 ... e20
+redom sa pauzom izmedju nota, onda radi konvoluciju,
+ovime će se videti odnos intenziteta korelacije izmedju
+nižih i viših nota, i jedno za svagda standardizovati 
+threshold.
+
+Takodje ulaznu pesmu: normalizovati output tkd a ne klipuje
+ali ima maks amplitudu i kompresovati tkd svaka nota ima isti peak

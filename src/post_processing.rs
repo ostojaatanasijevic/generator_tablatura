@@ -17,6 +17,48 @@ use crate::NotePeak;
 use crate::NotesToIndex;
 use crate::Peaks;
 
+pub fn process_of_elimination(data: &Vec<Vec<Vec<f32>>>) -> Vec<Vec<Vec<f32>>>{
+    let mut out = data.clone();
+
+    for t in 0..out[0][0].len(){
+        //PRVIH PET NOTA E žice mogu samo da proizvede ta žica
+        //tkd ovde bezbedno može da se radi prosta eliminacija
+        let mut max = 0.0;
+        let mut index = 0;
+
+        for i in 0..5{
+            if out[5][i][t] > max{
+                max = out[5][i][t];
+                index = i;
+            }
+        }
+
+        for i in 0..5{
+            if i != index{
+                out[5][i][t] = 0.0;
+            }
+        }
+
+        //isto važi i za poslednje note e žice
+        let mut max = 0.0;
+        let mut index = 0;
+        for i in 15..20{
+            if out[0][i][t] > max{
+                max = out[0][i][t];
+                index = i;
+            }
+        }
+
+        for i in 15..20{
+            if i != index{
+                out[0][i][t] = 0.0;
+            }
+        }
+    }
+
+    out
+}
+
 pub fn schmitt(data: &Vec<Vec<Vec<f32>>>,
                high: f32,
                low: f32) -> Vec<Vec<Vec<f32>>>{

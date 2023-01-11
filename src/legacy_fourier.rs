@@ -71,8 +71,8 @@ pub fn convolution_per_note(input_chunk: &Vec<i16>,
                      ) -> Vec<Vec<Vec<f32>>>{ 
      
     let mut start_index: usize = 0;
-    let mut stop_index: usize = SAMPLE * 2;
-    let mut nfft: usize = SAMPLE * 2;
+    let mut stop_index: usize = SAMPLE;
+    let mut nfft: usize = SAMPLE;
     
     if convolution_type == "circular"{
         start_index = 0;
@@ -136,7 +136,7 @@ pub fn dtft_and_conv(input_chunk: &Vec<i16>,
     let mut start_index: usize = 0;
     let mut stop_index: usize = SAMPLE;
     let mut nfft: usize = SAMPLE;
-    /*
+    
     if convolution_type == "circular"{
         start_index = 0;
         stop_index = SAMPLE;
@@ -150,7 +150,7 @@ pub fn dtft_and_conv(input_chunk: &Vec<i16>,
         stop_index = SAMPLE *2;
         nfft = SAMPLE * 2;
     }
-    */
+    
 
     let mut final_buffer = vec![vec![Vec::<f32>::new(); broj_pragova]; broj_zica];
     let mut planner = FftPlanner::<f32>::new();
@@ -181,6 +181,7 @@ pub fn dtft_and_conv(input_chunk: &Vec<i16>,
         for string in 0..sample_ffts.len(){
             for note in 0..sample_ffts[0].len(){
                 let mut s_buffer = vec![Complex{ re: 0.0, im: 0.0}; nfft];
+                let mut out = vec![0.0; chunk_lenght + nfft * 2];
 
                 s_buffer = pesma_fft.iter().zip(sf[string][note].iter())
                 .map(|(x,y)| x*y.conj()).collect();
@@ -189,8 +190,12 @@ pub fn dtft_and_conv(input_chunk: &Vec<i16>,
 
                 let current: Vec<f32> = s_buffer[start_index..stop_index].iter().map(|a| a.norm()).collect();
                 
+                for t in 0..current.len(){
+                    out[c*SAMPLE+ t] += current[t];
+                } 
+                
+                let decemeted= block_max_decemation(&out[c*SAMPLE..(c+1)*SAMPLE].to_vec(), SAMPLE/ 4); 
                 // decemate here; save RAM
-                let decemeted= block_max_decemation(&current, AVG_LEN); 
                 final_buffer[string][note].extend(decemeted);
             }
         }
@@ -317,7 +322,7 @@ fn fourier(data: Vec<i16>, window: &Vec<f32>, thread_index: &i32) -> Vec<Vec<Com
 
     fft_mem
 }
-pub fn calculate_sample_ffts(window: &Vec<f32>, padd: usize) -> Vec<Vec<Vec<Complex<f32>>>>{
+pub fn calculate_sample_ffts(window: &Vec<f32>, sample_len: usize, padd: usize) -> Vec<Vec<Vec<Complex<f32>>>>{
     let start: usize = 0;
     let stop: usize = 20;
     let mut samples_fft = vec![vec![Vec::<Complex<f32>>::new();stop - start]; 6 ];
@@ -338,18 +343,18 @@ pub fn calculate_sample_ffts(window: &Vec<f32>, padd: usize) -> Vec<Vec<Vec<Comp
         if !raw_data.is_sixteen(){ panic!("Wav file : {filename} isn't 16 bit! "); }
 
         let mut planner = FftPlanner::<f32>::new();
-        let fft = planner.plan_fft_forward(SAMPLE + padd);
-        let mut fft_data = vec![Complex{ re: 0.0, im: 0.0};SAMPLE + padd];
+        let fft = planner.plan_fft_forward(sample_len + padd);
+        let mut fft_data = vec![Complex{ re: 0.0, im: 0.0}; sample_len + padd];
 
         let data = raw_data.as_sixteen().unwrap();
            
         let offset: usize = 0;
-        for i in 0..SAMPLE{
+        for i in 0..sample_len{
             fft_data[i].re = (data[i] as f32) * window[i] / 65536.0;
         }
 
         fft.process(&mut fft_data);
-        samples_fft[string][note - start] = fft_data; //PODELI SA SAMPLES
+        samples_fft[string][note] = fft_data; //PODELI SA SAMPLES
     }
     }
 
