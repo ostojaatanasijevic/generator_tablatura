@@ -6,3 +6,7 @@ threshold.
 
 Takodje ulaznu pesmu: normalizovati output tkd a ne klipuje
 ali ima maks amplitudu i kompresovati tkd svaka nota ima isti peak
+
+Različite prozorske funkcije za različite note, 
+binovi nisu jednako udaljeni za sve note,
+valja paziti na korekcioni faktor amplitude još
