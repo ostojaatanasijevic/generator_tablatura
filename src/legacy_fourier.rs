@@ -102,6 +102,7 @@ pub fn convolution_per_note(
 
             for c in 0..num_of_chunks {
                 let mut pesma_fft = vec![Complex { re: 0.0, im: 0.0 }; nfft];
+                //NE IDE OVAKO ZA SAVE
                 for i in 0..SAMPLE {
                     pesma_fft[i].re = (input_chunk[c * SAMPLE + i] as f32) * window[i] / 65536.0;
                 }
@@ -127,7 +128,7 @@ pub fn convolution_per_note(
 
                 // decemate here; save RAM
                 let decemeted =
-                    block_max_decemation(&out[c * SAMPLE..(c + 1) * SAMPLE].to_vec(), AVG_LEN);
+                    block_max_decemation(&out[c * SAMPLE..(c + 1) * SAMPLE].to_vec(), 32);
                 final_buffer[string][note].extend(decemeted);
             }
         }

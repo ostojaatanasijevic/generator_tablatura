@@ -97,28 +97,35 @@ fn main() {
     let mut note_intensity =
         legacy_fourier::convolution_per_note(&song, &sample_ffts, &window, "circular");
 
-    println!("{:?}", all_notes[30]);
-
     //ratio is target / autocorrelation
     //time for de noisning
     //problem, missing cause and effect, determine source, then remove harmonics
-    /*
-        for note in 0..120{
-            for hb in all_notes[note].harmonics_before.iter(){
-                for t in 0..note_intensity[0][0].len(){
-                    note_intensity[hb.0 / 20][hb.0 % 20][t] -= note_intensity[note / 20][note % 20][t] * hb.1;
-                    //note_intensity[note / 20][note % 20][t] -=   note_intensity[hb.0 / 20][hb.0 % 20][t] * hb.1;
+
+    for note in 0..120 {
+        for hb in all_notes[note].harmonics_after.iter() {
+            for t in 0..note_intensity[0][0].len() {
+                if note_intensity[hb.0 / 20][hb.0 % 20][t] < note_intensity[note / 20][note % 20][t]
+                {
+                    note_intensity[hb.0 / 20][hb.0 % 20][t] -=
+                        0.5 * note_intensity[note / 20][note % 20][t] * hb.1;
                 }
-                println!("Attenuating {:?} with {:?} and a ratio of {}", &all_notes[hb.0], &all_notes[note], hb.1);
             }
-            for hb in all_notes[note].harmonics_after.iter(){
-                for t in 0..note_intensity[0][0].len(){
-    //                    note_intensity[hb.0 / 20][hb.0 % 20][t] -= note_intensity[note / 20][note % 20][t] * hb.1;
-    //                note_intensity[note / 20][note % 20][t]-=   note_intensity[hb.0 / 20][hb.0 % 20][t] * hb.1;
+            println!(
+                "Attenuating {:?} with {:?} and a ratio of {}",
+                &all_notes[hb.0], &all_notes[note], hb.1
+            );
+        }
+        for hb in all_notes[note].harmonics_after.iter() {
+            for t in 0..note_intensity[0][0].len() {
+                if note_intensity[hb.0 / 20][hb.0 % 20][t] < note_intensity[note / 20][note % 20][t]
+                {
+                    note_intensity[hb.0 / 20][hb.0 % 20][t] -=
+                        0.5 * note_intensity[note / 20][note % 20][t] * hb.1;
                 }
             }
         }
-        */
+    }
+
     /*
     for i in 0..20{
         for t in 0..note_intensity[0][0].len(){
@@ -131,9 +138,11 @@ fn main() {
 
     plot::plot_data_norm(note_intensity);
 
+    /*
     for note in all_notes.iter() {
         println!("{note:?}");
     }
+    */
 }
 
 fn generate_all_notes() -> Vec<Note> {
@@ -143,7 +152,7 @@ fn generate_all_notes() -> Vec<Note> {
         for n in 0..20 {
             let mut name_new = String::from(*string);
             name_new.push_str(&n.to_string());
-            println!("{name_new}");
+            //println!("{name_new}");
             all_notes.push(Note {
                 name: name_new,
                 freq: HERZ[offset_table[counter] + n].parse().unwrap(),
@@ -159,10 +168,15 @@ fn generate_all_notes() -> Vec<Note> {
 
 fn generate_note_network(all_notes: &mut Vec<Note>, window: &Vec<f32>) {
     for note in 0..all_notes.len() {
-        for rev in 0..note {
-            let f1 = all_notes[rev].freq;
-            let f2 = all_notes[note].freq;
-            let r = f2 / f1;
+        for rev in 0..all_notes.len() {
+            let mut r = all_notes[rev].freq / all_notes[note].freq;
+            let mut before = 1;
+
+            if r < 1.0 {
+                r = 1.0 / r;
+                before = 0;
+            }
+
             let m = r - r.floor();
 
             if (m < 0.1 && r > 1.5) || (m > 0.9 && r > 1.5) {
@@ -186,42 +200,13 @@ fn generate_note_network(all_notes: &mut Vec<Note>, window: &Vec<f32>) {
 
                 let ratio = target_corralate / autocorrelate;
 
-                all_notes[note].harmonics_before.push((rev, ratio));
+                if before == 1 {
+                    all_notes[note].harmonics_before.push((rev, ratio));
+                } else {
+                    all_notes[note].harmonics_after.push((rev, ratio));
+                }
                 //println!("{:?} is {r}th harmonic of", all_notes[note]);
                 //println!("{:?}\n", all_notes[rev]);
-            }
-        }
-
-        for rev in note..all_notes.len() {
-            let f1 = all_notes[rev].freq;
-            let f2 = all_notes[note].freq;
-            let r = f1 / f2;
-            let m = r - r.floor();
-
-            if (m < 0.1 && r > 1.5) || (m > 0.9 && r > 1.5) {
-                let autocorrelate = fourier::cross_corr_notes(
-                    &all_notes[note],
-                    &all_notes[note],
-                    &window,
-                    SAMPLE,
-                    0,
-                );
-                let target_corralate = fourier::cross_corr_notes(
-                    &all_notes[note],
-                    &all_notes[rev],
-                    &window,
-                    SAMPLE,
-                    0,
-                );
-
-                let autocorrelate = fourier::average(&autocorrelate);
-                let target_corralate = fourier::average(&target_corralate);
-
-                let ratio = target_corralate / autocorrelate;
-
-                all_notes[note].harmonics_after.push((rev, ratio));
-                //println!("{:?} is {r}th harmonic of", all_notes[rev]);
-                //println!("{:?}\n", all_notes[note]);
             }
         }
     }
