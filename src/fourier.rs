@@ -158,20 +158,6 @@ pub fn dtft<T: unsinkable>(input_chunk: &Vec<T>, window: &Vec<f32>, nfft: usize)
     pesma_fft.iter().map(|x| x.norm()).collect()
 }
 
-pub fn open_sample_note(note: &Note) -> Vec<i16> {
-    let filename = format!("midi/{}/{}.wav", &note.name[0..1], &note.name);
-
-    let mut file =
-        File::open(Path::new(&filename[..])).expect(&format!("Can't open file named {filename}"));
-    let (_, raw_data) =
-        wav::read(&mut file).expect(&format!("Can't read file, im retarded: ~{filename}~"));
-    let data = raw_data
-        .as_sixteen()
-        .expect(&format!("Wav file : {filename} isn't 16 bit!"));
-
-    data.to_vec()
-}
-
 pub fn cross_corr_notes(
     first: &Note,
     second: &Note,
@@ -288,4 +274,18 @@ pub fn open_song(filename: &str, seconds: f32) -> Vec<i16> {
 
     println!("song loaded!");
     data
+}
+
+pub fn open_sample_note(note: &Note) -> Vec<i16> {
+    let filename = format!("midi/{}/{}.wav", &note.name[0..1], &note.name);
+
+    let mut file =
+        File::open(Path::new(&filename[..])).expect(&format!("Can't open file named {filename}"));
+    let (_, raw_data) =
+        wav::read(&mut file).expect(&format!("Can't read file, im retarded: ~{filename}~"));
+    let data = raw_data
+        .as_sixteen()
+        .expect(&format!("Wav file : {filename} isn't 16 bit!"));
+
+    data.to_vec()
 }

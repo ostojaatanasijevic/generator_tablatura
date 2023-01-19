@@ -128,7 +128,7 @@ pub fn convolution_per_note(
 
                 // decemate here; save RAM
                 let decemeted =
-                    block_max_decemation(&out[c * SAMPLE..(c + 1) * SAMPLE].to_vec(), 32);
+                    block_max_decemation(&out[c * SAMPLE..(c + 1) * SAMPLE].to_vec(), AVG_LEN);
                 final_buffer[string][note].extend(decemeted);
             }
         }
