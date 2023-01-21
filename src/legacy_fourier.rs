@@ -353,7 +353,16 @@ pub fn calculate_sample_ffts(
     for string in 0..STRINGS.len() {
         for note in start..stop {
             //use format!
-            let filename = format!("midi/{}/{}{}.wav", STRINGS[string], STRINGS[string], &note);
+            let filename = format!(
+                "midi/{}/{}{}.wav",
+                STRINGS[5 - string],
+                STRINGS[string],
+                &note
+            );
+            let filename = format!(
+                "pure_sine_samples/audiocheck.net_sin_{}Hz_-3dBFS_3s.wav",
+                HERZ[offset_table[5 - string] + note]
+            );
             let mut file = File::open(Path::new(&filename))
                 .expect(&format!("Can't open file named {filename}"));
             let (_, raw_data) =

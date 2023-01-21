@@ -1,5 +1,18 @@
 #![allow(warnings, unused)]
 
+// dodaj prefilter
+// radi dtft za svaku frekvencija, time se može postići velika preciznost
+//
+// skroz nova fora al ne baš
+// radi konvoluciju sa sinusima
+// u takvom slučaju nema dvoznačnosti o tome odakle se pojavljuje harmonik, pre ili posle
+// može samo posle
+// tkd kreneš od E na dole i ubijaš harmonike proporcijonalno njihovim intezitetima za zadatu notu
+// odakle intenziteti?
+// odradiš fft za svaku notu i odmeriš peakove, mnogo prostije nego dosadašnja tehnika
+
+// dobra ideja zasad debilno implementirana
+
 mod fourier;
 mod legacy_fourier;
 mod misc;
@@ -40,7 +53,7 @@ pub struct NotePeak {
 
 pub const THREADS: usize = 8;
 pub const SAMPLE: usize = 4096 * 2;
-pub const F_RES: f32 = 2.0 * 44100.0 / SAMPLE as f32;
+pub const F_RES: f32 = 44100.0 / SAMPLE as f32;
 pub const T_RES: f32 = 1.0 / (44100.0);
 pub const NFFT: usize = SAMPLE;
 pub const AVG_LEN: usize = SAMPLE / 8; // mora da može da deli NFFT, da ne bi cureli podaci
@@ -77,8 +90,7 @@ pub const HERZ: [&str; 44] = [
 pub struct Note {
     name: String,
     freq: f32,
-    harmonics_before: Vec<(usize, f32)>,
-    harmonics_after: Vec<(usize, f32)>,
+    harmonics: Vec<(usize, f32)>,
 }
 
 const offset_table: [usize; 6] = [0, 5, 10, 15, 19, 24];
@@ -86,6 +98,7 @@ const offset_table: [usize; 6] = [0, 5, 10, 15, 19, 24];
 fn main() {
     let args: Vec<String> = env::args().collect();
     let song = fourier::open_song(&args[1], 15.0);
+    // blackman je bolji od hann
     let window = fourier::calculate_window_function(SAMPLE, "blackman");
 
     let mut all_notes = generate_all_notes();
@@ -96,28 +109,9 @@ fn main() {
     let mut note_intensity =
         legacy_fourier::threaded_dtft_and_conv(&song, &sample_ffts, &window, "circular");
 
-    //ratio is target / autocorrelation
-    //time for de noisning
-    //problem, missing cause and effect, determine source, then remove harmonics
     plot::plot_data_norm(&note_intensity, "before_");
     let note_intensity = attenuate_harmonics(&note_intensity, &all_notes, 1.0);
     plot::plot_data_norm(&note_intensity, "after_");
-
-    /*
-    for i in 0..20{
-        for t in 0..note_intensity[0][0].len(){
-            note_intensity[0][i][t] -= note_intensity[5][i][t] / 5.0;
-        }
-    }
-    */
-
-    //let note_intensity = post_processing::process_of_elimination(&note_intensity);
-
-    /*
-    for note in all_notes.iter() {
-        println!("{note:?}");
-    }
-    */
 }
 
 fn generate_all_notes() -> Vec<Note> {
@@ -131,8 +125,7 @@ fn generate_all_notes() -> Vec<Note> {
             all_notes.push(Note {
                 name: name_new,
                 freq: HERZ[offset_table[counter] + n].parse().unwrap(),
-                harmonics_before: Vec::new(),
-                harmonics_after: Vec::new(),
+                harmonics: Vec::new(),
             });
         }
         counter += 1;
@@ -145,67 +138,47 @@ fn generate_note_network(all_notes: &mut Vec<Note>, window: &Vec<f32>) {
     let end = all_notes.len();
 
     for note in 0..end {
-        for rev in 0..end {
-            let mut r = all_notes[rev].freq / all_notes[note].freq;
-            let mut before = 1;
+        //calculate fft and detect peaks
+        let data = fourier::open_sample_note(&all_notes[note]);
+        let dft_data = fourier::dtft(&data, &window, SAMPLE)[0..SAMPLE / 16].to_vec();
 
-            if r < 1.0 {
-                r = 1.0 / r;
-                before = 0;
+        let peaks = post_processing::find_peaks(&dft_data, 0.041);
+
+        //find start
+        let mut base_ampl = 1.0;
+        for peak in peaks.iter() {
+            let peak_freq = peak.index as f32 * F_RES;
+            if (peak_freq - all_notes[note].freq).abs() < F_RES * 1.5 {
+                println!("found base harmonic of {}", all_notes[note].name);
+                base_ampl = peak.ampl;
             }
-            let m = r - r.floor();
+        }
 
-            if ((m > 0.1 && m < 0.9) || (r < 1.5)) {
-                continue;
+        if base_ampl == 1.0 {
+            println!("failed to find {}", all_notes[note].name);
+            println!("first peak: {}", peaks[0].index as f32 * F_RES);
+        }
+
+        //calculate ratios
+        for peak in peaks.iter() {
+            let peak_freq = peak.index as f32 * F_RES;
+            for index in 0..120 {
+                if (all_notes[index].freq - peak_freq).abs() > 5.0 {
+                    continue;
+                }
+
+                let harmonic: i32 = (all_notes[index].freq / (all_notes[note].freq)).round() as i32;
+                if harmonic == 1 {
+                    continue;
+                }
+
+                let ratio = peak.ampl / base_ampl;
+                all_notes[note].harmonics.push((index, ratio));
+                println!(
+                    "base: {}, harmonic: {}, {}th ratio: {}",
+                    all_notes[note].name, all_notes[index].name, harmonic, ratio
+                );
             }
-
-            let ratio = r.round();
-            let new = ratio * all_notes[note].freq;
-
-            println!(
-                "note: {} {}, rev: {} {}, ratio: {r}, new: {new}",
-                all_notes[note].freq,
-                all_notes[note].name,
-                all_notes[rev].freq,
-                all_notes[rev].name
-            );
-
-            let autocorrelate = fourier::cross_corr_notes(
-                &all_notes[note],
-                &all_notes[note],
-                &window,
-                SAMPLE,
-                SAMPLE,
-            );
-
-            let target_corralate = fourier::cross_corr_notes(
-                &all_notes[note],
-                &all_notes[rev],
-                &window,
-                SAMPLE,
-                SAMPLE,
-            );
-
-            //compare by max
-            let autocorr = autocorrelate[0..SAMPLE / 8]
-                .iter()
-                .max_by(|a, b| a.total_cmp(b))
-                .unwrap();
-            let target_corr = target_corralate[0..SAMPLE / 8]
-                .iter()
-                .max_by(|a, b| a.total_cmp(b))
-                .unwrap();
-            let ratio = target_corr / autocorr;
-
-            println!("ratio: {ratio}");
-
-            if before == 1 {
-                all_notes[note].harmonics_before.push((rev, ratio));
-            } else {
-                all_notes[note].harmonics_after.push((rev, ratio));
-            }
-            //println!("{:?} is {r}th harmonic of", all_notes[note]);
-            //println!("{:?}\n", all_notes[rev]);
         }
     }
 }
@@ -219,41 +192,21 @@ fn attenuate_harmonics(
 
     // E A D G B e
     for note in 0..120 {
-        for hb in all_notes[note].harmonics_before.iter() {
+        for hb in all_notes[note].harmonics.iter() {
             let wire = 5 - hb.0 / 20;
             let tab = hb.0 % 20;
 
             for t in 0..note_intensity[0][0].len() {
                 //                if (note_intensity[note / 20][note % 20][t] - note_intensity[wire][tab][t]).abs() < 200.0 {
-                out[5 - hb.0 / 20][hb.0 % 20][t] -=
-                    factor * note_intensity[note / 20][note % 20][t] * hb.1;
+                out[wire][tab][t] -= factor * note_intensity[5 - note / 20][note % 20][t] * hb.1;
                 //               }
-                if out[5 - hb.0 / 20][hb.0 % 20][t] < 0.0 {
-                    out[5 - hb.0 / 20][hb.0 % 20][t] = 0.0;
+                if out[wire][tab][t] < 0.0 {
+                    out[wire][tab][t] = 0.0;
                 }
             }
+
             println!(
                 "Attenuating {} with {} and a ratio of {}, bfr",
-                &all_notes[hb.0].name,
-                &all_notes[note].name,
-                hb.1 * factor
-            );
-        }
-        for hb in all_notes[note].harmonics_after.iter() {
-            let wire = 5 - hb.0 / 20;
-            let tab = hb.0 % 20;
-
-            for t in 0..note_intensity[0][0].len() {
-                //                if (note_intensity[note / 20][note % 20][t] - note_intensity[wire][tab][t]).abs() < 200.0 {
-                out[5 - hb.0 / 20][hb.0 % 20][t] -=
-                    factor * note_intensity[note / 20][note % 20][t] * hb.1;
-                //               }
-                if out[5 - hb.0 / 20][hb.0 % 20][t] < 0.0 {
-                    out[5 - hb.0 / 20][hb.0 % 20][t] = 0.0;
-                }
-            }
-            println!(
-                "Attenuating {} with {} and a ratio of {}, atr",
                 &all_notes[hb.0].name,
                 &all_notes[note].name,
                 hb.1 * factor
