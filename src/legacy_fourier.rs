@@ -4,6 +4,7 @@ use rayon::prelude::*;
 use rustfft::{num_complex::Complex, FftPlanner};
 use std::error::Error;
 use std::f32::consts::PI;
+use std::fs::read_to_string;
 use std::fs::File;
 use std::io::IoSlice;
 use std::io::Write;
@@ -13,6 +14,7 @@ use std::thread;
 use crate::offset_table;
 use crate::post_processing::block_average_decemation;
 use crate::post_processing::block_max_decemation;
+use crate::post_processing::fir_filter;
 use crate::Note;
 use crate::AVG_LEN;
 use crate::HERZ;
@@ -86,6 +88,20 @@ pub fn convolution_per_note(
         start_index = 0;
         stop_index = SAMPLE * 2;
         nfft = SAMPLE * 2;
+    }
+
+    let b_strings = read_to_string("b").unwrap();
+    let a_strings = read_to_string("a").unwrap();
+
+    let mut b: Vec<f32> = vec![];
+    let mut a: Vec<f32> = vec![];
+
+    for line in b_strings.lines() {
+        b.push(line.parse().expect(&format!("bruuh:{}", line)));
+    }
+
+    for line in a_strings.lines() {
+        a.push(line.parse().expect(&format!("bruuh:{}", line)));
     }
 
     let mut final_buffer = vec![vec![Vec::<f32>::new(); BROJ_PRAGOVA]; BROJ_ZICA];

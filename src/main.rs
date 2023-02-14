@@ -52,11 +52,11 @@ pub struct NotePeak {
 }
 
 pub const THREADS: usize = 8;
-pub const SAMPLE: usize = 4096 * 2;
+pub const SAMPLE: usize = 2048 * 3;
 pub const F_RES: f32 = 44100.0 / SAMPLE as f32;
 pub const T_RES: f32 = 1.0 / (44100.0);
 pub const NFFT: usize = SAMPLE;
-pub const AVG_LEN: usize = SAMPLE / 8; // mora da može da deli NFFT, da ne bi cureli podaci
+pub const AVG_LEN: usize = SAMPLE / 32; // mora da može da deli NFFT, da ne bi cureli podaci
 pub const STRINGS: [&str; 6] = ["e", "B", "G", "D", "A", "E"];
 
 pub const HERZ: [&str; 44] = [
@@ -95,23 +95,37 @@ pub struct Note {
 
 const offset_table: [usize; 6] = [0, 5, 10, 15, 19, 24];
 
+//ADD THREAD DETECTION FOR INDIVIDUAL CPUs
 fn main() {
+    let h = post_processing::lp_filter(0.08, 100);
+
+    println!("len of h: {}", h.len());
+    for t in h.iter() {
+        print!("{t},");
+    }
+
     let args: Vec<String> = env::args().collect();
     let song = fourier::open_song(&args[1], 15.0);
-    // blackman je bolji od hann
-    let window = fourier::calculate_window_function(SAMPLE, "blackman");
+    let window = fourier::calculate_window_function(SAMPLE, "blackman"); // blackman je bolji od hann
 
     let mut all_notes = generate_all_notes();
     generate_note_network(&mut all_notes, &window);
 
-    //ADD THREAD DETECTION FOR INDIVIDUAL CPUs
-    let sample_ffts = legacy_fourier::calculate_sample_ffts(&window, SAMPLE, 0);
+    let sample_ffts = legacy_fourier::calculate_sample_ffts(&window, SAMPLE, SAMPLE);
     let mut note_intensity =
-        legacy_fourier::threaded_dtft_and_conv(&song, &sample_ffts, &window, "circular");
+        legacy_fourier::threaded_dtft_and_conv(&song, &sample_ffts, &window, "add");
 
+    let mut note_intensity = attenuate_harmonics(&note_intensity, &all_notes, 1.0);
     plot::plot_data_norm(&note_intensity, "before_");
-    let note_intensity = attenuate_harmonics(&note_intensity, &all_notes, 1.0);
+
+    for s in 0..5 {
+        for n in 0..20 {
+            post_processing::fir_filter(&h, &mut note_intensity[s][n]);
+        }
+    }
+
     plot::plot_data_norm(&note_intensity, "after_");
+    plot::draw_plot("plots/fir.png", h, 1.0, 1);
 }
 
 fn generate_all_notes() -> Vec<Note> {
@@ -149,15 +163,16 @@ fn generate_note_network(all_notes: &mut Vec<Note>, window: &Vec<f32>) {
         for peak in peaks.iter() {
             let peak_freq = peak.index as f32 * F_RES;
             if (peak_freq - all_notes[note].freq).abs() < F_RES * 1.5 {
-                println!("found base harmonic of {}", all_notes[note].name);
+                //println!("found base harmonic of {}", all_notes[note].name);
                 base_ampl = peak.ampl;
             }
         }
-
+        /*
         if base_ampl == 1.0 {
             println!("failed to find {}", all_notes[note].name);
             println!("first peak: {}", peaks[0].index as f32 * F_RES);
         }
+        */
 
         //calculate ratios
         for peak in peaks.iter() {
@@ -174,10 +189,12 @@ fn generate_note_network(all_notes: &mut Vec<Note>, window: &Vec<f32>) {
 
                 let ratio = peak.ampl / base_ampl;
                 all_notes[note].harmonics.push((index, ratio));
+                /*
                 println!(
                     "base: {}, harmonic: {}, {}th ratio: {}",
                     all_notes[note].name, all_notes[index].name, harmonic, ratio
                 );
+                */
             }
         }
     }
@@ -204,13 +221,14 @@ fn attenuate_harmonics(
                     out[wire][tab][t] = 0.0;
                 }
             }
-
+            /*
             println!(
                 "Attenuating {} with {} and a ratio of {}, bfr",
                 &all_notes[hb.0].name,
                 &all_notes[note].name,
                 hb.1 * factor
             );
+            */
         }
     }
 

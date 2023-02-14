@@ -17,6 +17,76 @@ use crate::NotePeak;
 use crate::NotesToIndex;
 use crate::Peaks;
 
+pub fn lp_filter(fp: f32, n: usize) -> Vec<f32> {
+    let mut out = vec![0.0; 2 * n + 1];
+
+    for t in 0..n {
+        let m = n - t;
+        out[t] = ((fp * m as f32).sin()) / (m as f32 * 3.14)
+    }
+    out[n] = fp / 3.14;
+    for t in 1..n {
+        out[t + n] = ((fp * t as f32).sin()) / (t as f32 * 3.14)
+    }
+
+    out
+}
+
+pub fn hp_filter(fp: f32, n: usize) -> Vec<f32> {
+    let mut out = vec![0.0; 2 * n + 1];
+
+    for t in 0..n - 1 {
+        let m = n - t;
+        out[t] = ((3.14 * m as f32).sin() - (3.14 * fp * m as f32).sin()) / (m as f32 * 3.14)
+    }
+    out[n] = 1.0 - fp;
+    for t in 1..n {
+        out[t + n] = ((3.14 * t as f32).sin() - (3.14 * fp * t as f32).sin()) / (t as f32 * 3.14)
+    }
+
+    out
+}
+
+pub fn fir_filter(h: &Vec<f32>, input: &mut Vec<f32>) -> Vec<f32> {
+    let len = h.len();
+    let mut x = vec![0.0; len];
+    x.append(&mut input.clone());
+
+    let mut out = vec![0.0; input.len() + len];
+
+    for i in 0..input.len() {
+        for ai in 0..len - 1 {
+            out[i + len] += h[ai] * x[i + len - ai];
+        }
+    }
+
+    for i in 0..input.len() {
+        if let Some(elem) = x.get_mut(i + len) {
+            input[i] = out[i + len];
+        } else {
+            input.push(out[i + len]);
+        }
+    }
+
+    out
+}
+
+pub fn iir_filter(b: &Vec<f32>, a: &Vec<f32>, input: &Vec<f32>) -> Vec<f32> {
+    let mut out = vec![0.0; input.len() + b.len()];
+
+    for i in b.len()..input.len() {
+        for bi in 0..b.len() {
+            out[i] -= b[bi] * out[i - bi];
+        }
+
+        for ai in 0..a.len() {
+            out[i] += a[ai] * input[i - ai];
+        }
+    }
+
+    out
+}
+
 pub fn process_of_elimination(data: &Vec<Vec<Vec<f32>>>) -> Vec<Vec<Vec<f32>>> {
     let mut out = data.clone();
 

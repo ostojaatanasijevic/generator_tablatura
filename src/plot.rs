@@ -67,10 +67,10 @@ pub fn draw_plot(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let root = BitMapBackend::new(plot_name, (1024, 768)).into_drawing_area();
     let mut freq: Vec<f32> = Vec::new();
-    let max = 140000.0;
+    let max = 220000.0;
     let temp: Vec<f32> = vec![0.0, max];
     let max = temp.iter().max_by(|a, b| a.total_cmp(b)).unwrap();
-    //let max = data.iter().max_by(|a, b| a.total_cmp(b)).unwrap();
+    let max = data.iter().max_by(|a, b| a.total_cmp(b)).unwrap();
 
     root.fill(&WHITE)?;
 
