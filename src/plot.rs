@@ -33,13 +33,7 @@ pub fn plot_data_norm(data: &Vec<Vec<Vec<f32>>>, prefix: &str) {
             filename.push_str(STRINGS[string]);
             filename.push_str(&note.to_string());
             filename.push_str(".png");
-            draw_plot(
-                &filename,
-                data[string][note].to_vec(),
-                T_RES * AVG_LEN as f32,
-                1,
-            )
-            .unwrap();
+            draw_plot(&filename, data[string][note].to_vec(), T_RES, 1).unwrap();
         }
     }
 }
@@ -52,7 +46,7 @@ pub fn plot_data(data: Vec<Vec<Complex<f32>>>) {
         draw_plot(
             &filename,
             data[note].iter().map(|a| a.norm()).collect(),
-            T_RES * AVG_LEN as f32,
+            T_RES as f32,
             1,
         )
         .unwrap();

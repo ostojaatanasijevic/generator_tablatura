@@ -211,9 +211,9 @@ pub fn block_max_decemation(data: &Vec<f32>, avg_len: usize) -> Vec<f32> {
     out
 }
 
-pub fn find_peaks(data: &Vec<f32>, threshold_ratio: f32) -> Vec<NotePeak> {
+pub fn find_peaks(data: &Vec<f32>, threshold: f32) -> Vec<NotePeak> {
     let mut local_peaks: Vec<NotePeak> = Vec::new();
-    let threshold = data.iter().max_by(|a, b| a.total_cmp(b)).unwrap() * threshold_ratio;
+    //let threshold = data.iter().max_by(|a, b| a.total_cmp(b)).unwrap() * threshold_ratio;
 
     for t in 1..data.len() - 1 {
         if (data[t] > data[t - 1]) && (data[t] > data[t + 1]) {

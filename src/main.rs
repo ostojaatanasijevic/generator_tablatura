@@ -13,6 +13,7 @@
 
 // dobra ideja zasad debilno implementirana
 
+mod fft;
 mod fourier;
 mod legacy_fourier;
 mod misc;
@@ -54,9 +55,9 @@ pub struct NotePeak {
 pub const THREADS: usize = 8;
 pub const SAMPLE: usize = 2048 * 3;
 pub const F_RES: f32 = 44100.0 / SAMPLE as f32;
-pub const T_RES: f32 = 1.0 / (44100.0);
 pub const NFFT: usize = SAMPLE;
 pub const AVG_LEN: usize = SAMPLE / 32; // mora da može da deli NFFT, da ne bi cureli podaci
+pub const T_RES: f32 = 1.0 / (44100.0) * AVG_LEN as f32;
 pub const STRINGS: [&str; 6] = ["e", "B", "G", "D", "A", "E"];
 
 pub const HERZ: [&str; 44] = [
@@ -112,17 +113,31 @@ fn main() {
     generate_note_network(&mut all_notes, &window);
 
     let sample_ffts = legacy_fourier::calculate_sample_ffts(&window, SAMPLE, SAMPLE);
-    let mut note_intensity =
-        legacy_fourier::threaded_dtft_and_conv(&song, &sample_ffts, &window, "add");
 
-    let mut note_intensity = attenuate_harmonics(&note_intensity, &all_notes, 1.0);
+    let mut note_intensity = vec![vec![Vec::new(); 20]; 6];
+    for s in 0..6 {
+        for n in 0..20 {
+            note_intensity[s][n] = fft::convolve(&song, &sample_ffts[s][n], &window, "add");
+        }
+    }
+
+    //  let mut note_intensity = legacy_fourier::threaded_dtft_and_conv(&song, &sample_ffts, &window, "add");
+
     plot::plot_data_norm(&note_intensity, "before_");
+    let mut note_intensity = attenuate_harmonics(&note_intensity, &all_notes, 1.5);
 
-    for s in 0..5 {
+    /*
+    for s in 0..6 {
         for n in 0..20 {
             post_processing::fir_filter(&h, &mut note_intensity[s][n]);
         }
     }
+
+    let peaks = post_processing::find_peaks(&note_intensity[0][0], 20000.0);
+    for peak in peaks.iter() {
+        println!("{:?}", peak);
+    }
+    */
 
     plot::plot_data_norm(&note_intensity, "after_");
     plot::draw_plot("plots/fir.png", h, 1.0, 1);
@@ -148,6 +163,7 @@ fn generate_all_notes() -> Vec<Note> {
     all_notes
 }
 
+//modify to convolve
 fn generate_note_network(all_notes: &mut Vec<Note>, window: &Vec<f32>) {
     let end = all_notes.len();
 
