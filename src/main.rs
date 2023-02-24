@@ -20,8 +20,10 @@ mod misc;
 mod plot;
 mod post_processing;
 
+use clap::Parser;
 use fast_float::parse;
 use misc::hertz_to_notes;
+use num::complex::ComplexFloat;
 use num::FromPrimitive;
 use plotters::prelude::*;
 use rustfft::{num_complex::Complex, FftPlanner};
@@ -45,6 +47,33 @@ pub struct Peaks {
     ampl: f32,
 }
 
+#[derive(Parser, Debug)]
+#[command(author, version, about, long_about = None)]
+///Generator tablatura
+struct Args {
+    #[arg(short, long, default_value_t = 3072)]
+    ///Lenght of fft sample size
+    nfft: usize,
+    #[arg(short, long, default_value_t = 0.1)]
+    ///Filter cutoff frequency
+    w: f32,
+    ///Circular convolution type: add, save
+    #[arg(short, long, default_value = "add")]
+    conv_type: String,
+
+    #[arg(short, long)]
+    ///Song file path
+    file_name: String,
+
+    #[arg(short, long, default_value_t = 10.0)]
+    ///Number of seconds to analyze
+    sec_to_run: f32,
+
+    #[arg(short, long, default_value = "blackman")]
+    ///Window function
+    window_function: String,
+}
+
 #[derive(Debug)]
 pub struct NotePeak {
     time: f32,
@@ -53,10 +82,10 @@ pub struct NotePeak {
 }
 
 pub const THREADS: usize = 8;
-pub const SAMPLE: usize = 2048 * 3;
+pub const SAMPLE: usize = 1024 * 3;
 pub const F_RES: f32 = 44100.0 / SAMPLE as f32;
 pub const NFFT: usize = SAMPLE;
-pub const AVG_LEN: usize = SAMPLE / 32; // mora da može da deli NFFT, da ne bi cureli podaci
+pub const AVG_LEN: usize = 1; // SAMPLE / 32; // mora da može da deli NFFT, da ne bi cureli podaci
 pub const T_RES: f32 = 1.0 / (44100.0) * AVG_LEN as f32;
 pub const STRINGS: [&str; 6] = ["e", "B", "G", "D", "A", "E"];
 
@@ -98,40 +127,57 @@ const offset_table: [usize; 6] = [0, 5, 10, 15, 19, 24];
 
 //ADD THREAD DETECTION FOR INDIVIDUAL CPUs
 fn main() {
-    let h = post_processing::lp_filter(0.08, 100);
+    let args = Args::parse();
 
-    println!("len of h: {}", h.len());
-    for t in h.iter() {
-        print!("{t},");
-    }
-
-    let args: Vec<String> = env::args().collect();
-    let song = fourier::open_song(&args[1], 15.0);
-    let window = fourier::calculate_window_function(SAMPLE, "blackman"); // blackman je bolji od hann
-
-    let mut all_notes = generate_all_notes();
-    generate_note_network(&mut all_notes, &window);
+    let h = post_processing::lp_filter(args.w, 100);
+    let sec_to_run: f32 = args.sec_to_run;
+    let song = fourier::open_song(&args.file_name, sec_to_run);
+    let window = fourier::calculate_window_function(SAMPLE, &args.window_function); // blackman je bolji od hann
 
     let sample_ffts = legacy_fourier::calculate_sample_ffts(&window, SAMPLE, SAMPLE);
+    let mut all_notes = generate_all_notes();
+    generate_note_network(&mut all_notes, &sample_ffts, &window);
 
-    let mut note_intensity = vec![vec![Vec::new(); 20]; 6];
-    for s in 0..6 {
-        for n in 0..20 {
-            note_intensity[s][n] = fft::convolve(&song, &sample_ffts[s][n], &window, "add");
-        }
+    println!("starting convolution...");
+    let mut note_intensity = Vec::new();
+    let mut handles = vec![];
+    for i in 0..6 {
+        let song = song.clone();
+        let sample_ffts = sample_ffts[i].clone();
+        let window = window.clone();
+        let conv_type = args.conv_type.clone();
+
+        handles.push(thread::spawn(move || {
+            let mut notes_on_string = vec![Vec::new(); 20];
+            for n in 0..20 {
+                notes_on_string[n] = fft::convolve(&song, &sample_ffts[n], &window, &conv_type);
+            }
+
+            notes_on_string
+        }));
     }
 
+    let mut joined_data: Vec<f32> = Vec::new();
+    for handle in handles {
+        let tmp = handle.join().unwrap();
+        note_intensity.push(tmp);
+    }
+
+    println!("convolution complete!");
+
     //  let mut note_intensity = legacy_fourier::threaded_dtft_and_conv(&song, &sample_ffts, &window, "add");
-
-    plot::plot_data_norm(&note_intensity, "before_");
-    let mut note_intensity = attenuate_harmonics(&note_intensity, &all_notes, 1.5);
-
-    /*
     for s in 0..6 {
         for n in 0..20 {
             post_processing::fir_filter(&h, &mut note_intensity[s][n]);
         }
     }
+
+    println!("fir filters applied");
+
+    plot::plot_data_norm(&note_intensity, "before_");
+    let mut note_intensity = attenuate_harmonics(&note_intensity, &all_notes, 0.5);
+
+    /*
 
     let peaks = post_processing::find_peaks(&note_intensity[0][0], 20000.0);
     for peak in peaks.iter() {
@@ -164,54 +210,61 @@ fn generate_all_notes() -> Vec<Note> {
 }
 
 //modify to convolve
-fn generate_note_network(all_notes: &mut Vec<Note>, window: &Vec<f32>) {
+fn generate_note_network(
+    all_notes: &mut Vec<Note>,
+    sample_ffts: &Vec<Vec<Vec<Complex<f32>>>>,
+    window: &Vec<f32>,
+) {
     let end = all_notes.len();
 
     for note in 0..end {
         //calculate fft and detect peaks
-        let data = fourier::open_sample_note(&all_notes[note]);
-        let dft_data = fourier::dtft(&data, &window, SAMPLE)[0..SAMPLE / 16].to_vec();
+        let midi_note = fourier::open_sample_note(&all_notes[note]);
 
-        let peaks = post_processing::find_peaks(&dft_data, 0.041);
+        let mut auto_conv = fft::convolve(
+            &midi_note,
+            &sample_ffts[5 - note / 20][note % 20],
+            &window,
+            "add",
+        );
 
-        //find start
-        let mut base_ampl = 1.0;
-        for peak in peaks.iter() {
-            let peak_freq = peak.index as f32 * F_RES;
-            if (peak_freq - all_notes[note].freq).abs() < F_RES * 1.5 {
-                //println!("found base harmonic of {}", all_notes[note].name);
-                base_ampl = peak.ampl;
+        let mut baseline = auto_conv.iter().sum::<f32>();
+
+        //for each higher harmonic convolve and save ratio
+        for h in 0..end {
+            let ratio = all_notes[h].freq / all_notes[note].freq;
+            let rounded_ratio = ratio.round();
+
+            //ako nije celobrojni umnozak, šibaj dalje
+            if (ratio - rounded_ratio).abs() > 0.03 || ratio < 1.5 {
+                continue;
             }
-        }
-        /*
-        if base_ampl == 1.0 {
-            println!("failed to find {}", all_notes[note].name);
-            println!("first peak: {}", peaks[0].index as f32 * F_RES);
-        }
-        */
 
-        //calculate ratios
-        for peak in peaks.iter() {
-            let peak_freq = peak.index as f32 * F_RES;
-            for index in 0..120 {
-                if (all_notes[index].freq - peak_freq).abs() > 5.0 {
-                    continue;
-                }
+            //get corresponding wav sine of freq harmonic
 
-                let harmonic: i32 = (all_notes[index].freq / (all_notes[note].freq)).round() as i32;
-                if harmonic == 1 {
-                    continue;
-                }
+            let mut conv =
+                fft::convolve(&midi_note, &sample_ffts[5 - h / 20][h % 20], &window, "add");
 
-                let ratio = peak.ampl / base_ampl;
-                all_notes[note].harmonics.push((index, ratio));
-                /*
-                println!(
-                    "base: {}, harmonic: {}, {}th ratio: {}",
-                    all_notes[note].name, all_notes[index].name, harmonic, ratio
-                );
-                */
-            }
+            let mut intensity = conv.iter().sum::<f32>();
+
+            /*
+            plot::draw_plot(
+                &format!("plots/{}_{}.png", &all_notes[note].name, &all_notes[h].name),
+                conv,
+                1.0,
+                1,
+            );
+            */
+            /*
+            println!(
+                "ratio of relation: {}_{} is {}",
+                &all_notes[note].name,
+                &all_notes[h].name,
+                intensity / baseline
+            );
+            */
+
+            all_notes[note].harmonics.push((h, intensity / baseline));
         }
     }
 }
@@ -237,14 +290,13 @@ fn attenuate_harmonics(
                     out[wire][tab][t] = 0.0;
                 }
             }
-            /*
+
             println!(
                 "Attenuating {} with {} and a ratio of {}, bfr",
                 &all_notes[hb.0].name,
                 &all_notes[note].name,
                 hb.1 * factor
             );
-            */
         }
     }
 

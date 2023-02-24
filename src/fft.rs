@@ -50,20 +50,6 @@ pub fn convolve(
         nfft = SAMPLE * 2;
     }
 
-    let b_strings = read_to_string("b").unwrap();
-    let a_strings = read_to_string("a").unwrap();
-
-    let mut b: Vec<f32> = vec![];
-    let mut a: Vec<f32> = vec![];
-
-    for line in b_strings.lines() {
-        b.push(line.parse().expect(&format!("bruuh:{}", line)));
-    }
-
-    for line in a_strings.lines() {
-        a.push(line.parse().expect(&format!("bruuh:{}", line)));
-    }
-
     let mut planner = FftPlanner::<f32>::new();
     let fft = planner.plan_fft_forward(nfft);
     let ifft = planner.plan_fft_inverse(nfft);
@@ -75,7 +61,7 @@ pub fn convolve(
 
     for c in 0..num_of_chunks {
         let mut pesma_fft = vec![Complex { re: 0.0, im: 0.0 }; nfft];
-        //NE IDE OVAKO ZA SAVE
+
         for i in 0..SAMPLE {
             pesma_fft[i].re = (input_large[c * SAMPLE + i] as f32) * window[i] / 65536.0;
         }
@@ -100,6 +86,5 @@ pub fn convolve(
         }
     }
 
-    println!("dtft and conv done!");
     out
 }

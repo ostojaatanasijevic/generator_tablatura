@@ -64,7 +64,7 @@ pub fn draw_plot(
     let max = 220000.0;
     let temp: Vec<f32> = vec![0.0, max];
     let max = temp.iter().max_by(|a, b| a.total_cmp(b)).unwrap();
-    let max = data.iter().max_by(|a, b| a.total_cmp(b)).unwrap();
+    //let max = data.iter().max_by(|a, b| a.total_cmp(b)).unwrap();
 
     root.fill(&WHITE)?;
 
