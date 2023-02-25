@@ -10,7 +10,6 @@ use std::thread;
 
 use crate::AVG_LEN;
 use crate::F_RES;
-use crate::SAMPLE;
 use crate::STRINGS;
 use crate::THREADS;
 use crate::T_RES;
@@ -23,18 +22,26 @@ pub fn single_plot_data_norm(data: Vec<f32>) {
     draw_plot("plots/plot0.png", data.to_vec(), T_RES as f32, 1).unwrap();
 }
 
-pub fn plot_data_norm(data: &Vec<Vec<Vec<f32>>>, prefix: &str) {
-    let data = data.clone();
+pub fn plot_data_norm(data: &Vec<Vec<Vec<f32>>>, prefix: &str, sec: f32) {
+    let mut filename = format!("plots/{prefix}");
+    let mut handles = vec![];
+    for i in 0..6 {
+        let mut string_data = data[i].clone();
+        let filename_base = filename.clone();
 
-    for string in 0..data.len() {
-        for note in 0..data[0].len() {
-            let mut filename = String::from("plots/");
-            filename.push_str(prefix);
-            filename.push_str(STRINGS[string]);
-            filename.push_str(&note.to_string());
-            filename.push_str(".png");
-            draw_plot(&filename, data[string][note].to_vec(), T_RES, 1).unwrap();
-        }
+        handles.push(thread::spawn(move || {
+            for n in 0..20 {
+                let note_data = string_data.remove(0);
+                let len = note_data.len() as f32;
+                let filename = format!("{filename_base}{}{}.png", STRINGS[i], n);
+                draw_plot(&filename, note_data, sec / len, 1).unwrap();
+            }
+        }));
+    }
+
+    let mut joined_data: Vec<f32> = Vec::new();
+    for handle in handles {
+        handle.join().unwrap();
     }
 }
 
@@ -64,7 +71,7 @@ pub fn draw_plot(
     let max = 220000.0;
     let temp: Vec<f32> = vec![0.0, max];
     let max = temp.iter().max_by(|a, b| a.total_cmp(b)).unwrap();
-    //let max = data.iter().max_by(|a, b| a.total_cmp(b)).unwrap();
+    let max = data.iter().max_by(|a, b| a.total_cmp(b)).unwrap();
 
     root.fill(&WHITE)?;
 

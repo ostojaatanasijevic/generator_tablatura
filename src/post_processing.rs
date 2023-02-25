@@ -9,7 +9,6 @@ use std::thread;
 
 use crate::AVG_LEN;
 use crate::F_RES;
-use crate::SAMPLE;
 use crate::THREADS;
 use crate::T_RES;
 
@@ -17,16 +16,20 @@ use crate::NotePeak;
 use crate::NotesToIndex;
 use crate::Peaks;
 
+pub const PI: f32 = 3.14159265359;
+
+//pub fn butterworth(n: usize, attenuation_db: f32) -> (Vec<f32>, Vec<f32>) {}
+
 pub fn lp_filter(fp: f32, n: usize) -> Vec<f32> {
     let mut out = vec![0.0; 2 * n + 1];
 
     for t in 0..n {
         let m = n - t;
-        out[t] = ((fp * m as f32).sin()) / (m as f32 * 3.14)
+        out[t] = ((fp * m as f32).sin()) / (m as f32 * PI);
     }
-    out[n] = fp / 3.14;
+    out[n] = fp / PI;
     for t in 1..n {
-        out[t + n] = ((fp * t as f32).sin()) / (t as f32 * 3.14)
+        out[t + n] = ((fp * t as f32).sin()) / (t as f32 * PI);
     }
 
     out
@@ -181,6 +184,14 @@ pub fn to_dirac(data: &Vec<Vec<Vec<f32>>>) -> Vec<Vec<Vec<f32>>> {
         }
     }
 
+    out
+}
+
+pub fn decemation(data: &Vec<f32>, n: usize) -> Vec<f32> {
+    let mut out: Vec<f32> = Vec::new();
+    for t in 0..(data.len() / n) {
+        out.push(data[t * n]);
+    }
     out
 }
 

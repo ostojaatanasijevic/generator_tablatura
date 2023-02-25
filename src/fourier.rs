@@ -12,10 +12,12 @@ use std::io::Write;
 use std::path::Path;
 use std::thread;
 
+use crate::offset_table;
 use crate::post_processing::block_average_decemation;
 use crate::post_processing::block_max_decemation;
 use crate::Note;
 use crate::AVG_LEN;
+use crate::HERZ;
 use crate::NFFT;
 use crate::SAMPLE;
 use crate::STRINGS;
@@ -134,6 +136,11 @@ pub trait unsinkable {
 }
 
 impl unsinkable for i16 {
+    fn to_float(&self) -> f32 {
+        *self as f32
+    }
+}
+impl unsinkable for f32 {
     fn to_float(&self) -> f32 {
         *self as f32
     }
@@ -288,4 +295,39 @@ pub fn open_sample_note(note: &Note) -> Vec<i16> {
         .expect(&format!("Wav file : {filename} isn't 16 bit!"));
 
     data.to_vec()
+}
+
+pub fn open_sample_notes(sample_len: usize) -> Vec<Vec<Vec<i16>>> {
+    let start: usize = 0;
+    let stop: usize = 20;
+    let mut samples_fft = vec![vec![Vec::new(); stop - start]; 6];
+
+    for string in 0..STRINGS.len() {
+        for note in start..stop {
+            //use format!
+            let filename = format!(
+                "midi/{}/{}{}.wav",
+                STRINGS[5 - string],
+                STRINGS[string],
+                &note
+            );
+            let filename = format!(
+                "pure_sine_samples/audiocheck.net_sin_{}Hz_-3dBFS_3s.wav",
+                HERZ[offset_table[5 - string] + note]
+            );
+            let mut file = File::open(Path::new(&filename))
+                .expect(&format!("Can't open file named {filename}"));
+            let (_, raw_data) =
+                wav::read(&mut file).expect(&format!("Can't read file, im retarded: ~{filename}~"));
+            let data = raw_data
+                .as_sixteen()
+                .expect(&format!("Waw file: {} is not 16 bit", &filename))[0..sample_len]
+                .to_vec();
+
+            samples_fft[string][note] = data;
+        }
+    }
+
+    println!("samples calculated!");
+    samples_fft
 }
