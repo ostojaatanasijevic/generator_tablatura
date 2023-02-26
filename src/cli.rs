@@ -16,7 +16,7 @@ pub struct Args {
     ///Lenght of fir filter
     pub lenght_fir: usize,
 
-    #[arg(short, long, default_value_t = 100)]
+    #[arg(short, long, default_value_t = 1000)]
     ///Number of samples that get averaged into one
     pub decemation_len: usize,
 
@@ -39,4 +39,12 @@ pub struct Args {
     #[arg(short, long, default_value_t = 0.5)]
     ///Attenuation factor for harmonics
     pub attenuation_factor: f32,
+
+    #[arg(short, long, default_value_t = 1.0)]
+    ///Power for the harmonics ratio to be raised to
+    pub power_of_harmonics: f32,
+
+    #[arg(short, long, default_value_t = 0.1)]
+    ///Outout filter cutoff frequency
+    pub output_cutoff: f32,
 }

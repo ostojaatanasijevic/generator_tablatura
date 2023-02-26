@@ -12,6 +12,7 @@ use clap::Parser;
 use fast_float::parse;
 use misc::hertz_to_notes;
 use num::complex::ComplexFloat;
+use num::traits::Pow;
 use num::FromPrimitive;
 use plotters::prelude::*;
 use rustfft::{num_complex::Complex, FftPlanner};
@@ -43,9 +44,6 @@ pub struct NotePeak {
 }
 
 pub const THREADS: usize = 8;
-pub const SAMPLE: usize = 1024 * 3;
-pub const F_RES: f32 = 44100.0 / SAMPLE as f32;
-pub const NFFT: usize = SAMPLE;
 pub const AVG_LEN: usize = 1; // sample_len / 32; // mora da može da deli NFFT, da ne bi cureli podaci
 pub const T_RES: f32 = 1.0 / (44100.0) * AVG_LEN as f32;
 pub const STRINGS: [&str; 6] = ["e", "B", "G", "D", "A", "E"];
@@ -58,14 +56,9 @@ pub const HERZ: [&str; 44] = [
     "698.46", "739.99", "783.99", "830.61", "880.0", "932.33", "987.77",
 ];
 
-//
-//
 // IZVORI ZABUNE
 // 1. e0 = B5 = G9 itd
 // rešenje: sistemom eliminacije odrediti koja nota zvoni na kojoj žici
-//
-//
-
 // TEMPO SE RAČUNA AUTOKORELACIOJOM SIGNALA
 //
 
@@ -104,8 +97,7 @@ fn main() {
         handles.push(thread::spawn(move || {
             let mut notes_on_string = vec![Vec::new(); 20];
             for n in 0..20 {
-                notes_on_string[n] =
-                    fft::convolve(&song, &sample_notes[n], &window, &conv_type, None);
+                notes_on_string[n] = fft::convolve(&song, &sample_notes[n], &window, None);
             }
 
             notes_on_string
@@ -121,6 +113,8 @@ fn main() {
     println!("convolution complete!");
 
     println!("threaded filtering started...");
+
+    let window = fourier::calculate_window_function(h.len(), &args.window_function); // blackman je bolji od hann
     let mut handles = vec![];
     for i in 0..6 {
         let h = h.clone();
@@ -134,10 +128,60 @@ fn main() {
             for n in 0..20 {
                 let mut note_data = string_data.remove(0);
                 //FFT method
-                out_string_data[n] = fft::convolve(&note_data, &h, &window, &conv_type, None); // applying low pass filter
-
+                out_string_data[n] = fft::convolve(&note_data, &h, &window, None); // applying low pass filter
                 out_string_data[n] =
                     post_processing::block_max_decemation(&out_string_data[n], args.decemation_len);
+            }
+
+            (i, out_string_data)
+        }));
+    }
+
+    let mut note_intensity = vec![Vec::new(); 6];
+    for handle in handles {
+        let tmp = handle.join().unwrap();
+        note_intensity[tmp.0] = tmp.1;
+    }
+
+    //post_processing::threaded_fir_filter(&h, &note_intensity, &window, &args);
+
+    /*
+    for s in 0..6 {
+        for n in 0..20 {
+            post_processing::fir_filter(&h, &mut note_intensity[s][n]);
+        }
+    }
+    */
+
+    println!("fir filters applied");
+
+    plot::plot_data_norm(&note_intensity, "before_", sec_to_run);
+
+    let mut note_intensity = attenuate_harmonics(
+        &note_intensity,
+        &all_notes,
+        args.attenuation_factor,
+        args.power_of_harmonics,
+    );
+
+    /*
+    let h = post_processing::lp_filter(args.output_cutoff, 50);
+    let mut handles = vec![];
+    for i in 0..6 {
+        let h = h.clone();
+        let mut string_data = note_intensity.remove(0);
+        let window = window.clone();
+        let conv_type = args.conv_type.clone();
+
+        handles.push(thread::spawn(move || {
+            let mut out_string_data = vec![Vec::new(); 20];
+
+            for n in 0..20 {
+                let mut note_data = string_data.remove(0);
+                //FFT method
+                out_string_data[n] = fft::convolve(&note_data, &h, &window, &conv_type, None);
+                // applying low pass filter
+
                 //out_string_data[n] = post_processing::decemation(&out_string_data[n], args.decemation_len);
 
                 //slow as all hell
@@ -154,20 +198,7 @@ fn main() {
         note_intensity[tmp.0] = tmp.1;
     }
 
-    /*
-    for s in 0..6 {
-        for n in 0..20 {
-            post_processing::fir_filter(&h, &mut note_intensity[s][n]);
-        }
-    }
     */
-
-    println!("fir filters applied");
-
-    plot::plot_data_norm(&note_intensity, "before_", sec_to_run);
-
-    let mut note_intensity =
-        attenuate_harmonics(&note_intensity, &all_notes, args.attenuation_factor);
 
     plot::plot_data_norm(&note_intensity, "after_", sec_to_run);
     plot::draw_plot("plots/fir.png", h, 1.0, 1);
@@ -209,7 +240,6 @@ fn generate_note_network(
             &midi_note,
             &sample_notes[5 - note / 20][note % 20],
             &window,
-            "add",
             None,
         );
 
@@ -231,13 +261,8 @@ fn generate_note_network(
 
             //get corresponding wav sine of freq harmonic
 
-            let mut conv = fft::convolve(
-                &midi_note,
-                &sample_notes[5 - h / 20][h % 20],
-                &window,
-                "add",
-                None,
-            );
+            let mut conv =
+                fft::convolve(&midi_note, &sample_notes[5 - h / 20][h % 20], &window, None);
             // zero index compare
             //let mut intensity = conv[0];
             // average compare
@@ -271,6 +296,7 @@ fn attenuate_harmonics(
     note_intensity: &Vec<Vec<Vec<f32>>>,
     all_notes: &Vec<Note>,
     factor: f32,
+    power_of_harmonics: f32,
 ) -> Vec<Vec<Vec<f32>>> {
     let mut out = note_intensity.clone();
 
@@ -281,7 +307,8 @@ fn attenuate_harmonics(
             let tab = hb.0 % 20;
 
             for t in 0..out[wire][tab].len() {
-                out[wire][tab][t] -= factor * out[5 - note / 20][note % 20][t] * hb.1;
+                out[wire][tab][t] -=
+                    factor * out[5 - note / 20][note % 20][t] * (hb.1).pow(power_of_harmonics);
             }
 
             println!(

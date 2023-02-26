@@ -19,7 +19,6 @@ use crate::post_processing::fir_filter;
 use crate::Note;
 use crate::AVG_LEN;
 use crate::HERZ;
-use crate::NFFT;
 use crate::STRINGS;
 use crate::THREADS;
 
@@ -30,7 +29,6 @@ pub fn convolve<T: unsinkable, U: unsinkable>(
     input_large: &Vec<T>,
     input_small: &Vec<U>,
     window: &Vec<f32>,
-    convolution_type: &str,
     sample_len: Option<usize>,
 ) -> Vec<f32> {
     let s: usize;
@@ -43,22 +41,8 @@ pub fn convolve<T: unsinkable, U: unsinkable>(
     println!("convolving with sample_len: {sample_len}");
 
     let mut start_index: usize = 0;
-    let mut stop_index: usize = sample_len;
-    let mut nfft: usize = sample_len;
-
-    if convolution_type == "circular" {
-        start_index = 0;
-        stop_index = sample_len;
-        nfft = sample_len;
-    } else if convolution_type == "save" {
-        start_index = sample_len;
-        stop_index = sample_len * 2;
-        nfft = sample_len * 2;
-    } else if convolution_type == "add" {
-        start_index = 0;
-        stop_index = sample_len * 2;
-        nfft = sample_len * 2;
-    }
+    let mut stop_index: usize = sample_len * 2;
+    let mut nfft: usize = sample_len * 2;
 
     let mut planner = FftPlanner::<f32>::new();
     let fft = planner.plan_fft_forward(nfft);
@@ -97,7 +81,7 @@ pub fn convolve<T: unsinkable, U: unsinkable>(
 
         let current: Vec<f32> = s_buffer[start_index..stop_index]
             .iter()
-            .map(|a| a.norm())
+            .map(|a| a.norm()) //real abs is the same as norm
             .collect();
 
         for i in 0..current.len() {

@@ -7,8 +7,9 @@ use std::io::Write;
 use std::path::Path;
 use std::thread;
 
+use crate::cli::Args;
+use crate::fft;
 use crate::AVG_LEN;
-use crate::F_RES;
 use crate::THREADS;
 use crate::T_RES;
 
@@ -50,7 +51,7 @@ pub fn hp_filter(fp: f32, n: usize) -> Vec<f32> {
     out
 }
 
-pub fn fir_filter(h: &Vec<f32>, input: &mut Vec<f32>) -> Vec<f32> {
+pub fn fir_filter(h: &Vec<f32>, input: &Vec<f32>) -> Vec<f32> {
     let len = h.len();
     let mut x = vec![0.0; len];
     x.append(&mut input.clone());
@@ -63,15 +64,46 @@ pub fn fir_filter(h: &Vec<f32>, input: &mut Vec<f32>) -> Vec<f32> {
         }
     }
 
-    for i in 0..input.len() {
-        if let Some(elem) = x.get_mut(i + len) {
-            input[i] = out[i + len];
-        } else {
-            input.push(out[i + len]);
-        }
+    out
+}
+
+pub fn threaded_fir_filter(
+    h: &Vec<f32>,
+    note_intensity: &Vec<Vec<Vec<f32>>>,
+    window: &Vec<f32>,
+    args: &Args,
+) -> Vec<Vec<Vec<f32>>> {
+    let mut handles = vec![];
+
+    let mut note_intensity = note_intensity.clone();
+    for i in 0..6 {
+        let h = h.clone();
+        let mut string_data = note_intensity.remove(0);
+        let window = window.clone();
+        let conv_type = args.conv_type.clone();
+
+        let decemation_len = args.decemation_len;
+
+        handles.push(thread::spawn(move || {
+            let mut out_string_data = vec![Vec::new(); 20];
+
+            for n in 0..20 {
+                let mut note_data = string_data.remove(0);
+                //FFT method
+                out_string_data[n] = fft::convolve(&note_data, &h, &window, None); // applying low pass filter
+                out_string_data[n] = block_max_decemation(&out_string_data[n], decemation_len);
+            }
+
+            (i, out_string_data)
+        }));
     }
 
-    out
+    let mut note_intensity = vec![Vec::new(); 6];
+    for handle in handles {
+        let tmp = handle.join().unwrap();
+        note_intensity[tmp.0] = tmp.1;
+    }
+    note_intensity
 }
 
 pub fn iir_filter(b: &Vec<f32>, a: &Vec<f32>, input: &Vec<f32>) -> Vec<f32> {
