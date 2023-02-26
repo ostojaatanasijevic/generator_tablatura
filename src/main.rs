@@ -1,9 +1,9 @@
 #![allow(warnings, unused)]
 // KORISTI REALFFT
 
+mod cli;
 mod fft;
 mod fourier;
-mod legacy_fourier;
 mod misc;
 mod plot;
 mod post_processing;
@@ -35,52 +35,11 @@ pub struct Peaks {
     ampl: f32,
 }
 
-#[derive(Parser, Debug)]
-#[command(author, version, about, long_about = None)]
-///Generator tablatura
-struct Args {
-    #[arg(short, long, default_value_t = 3072)]
-    ///Lenght of fft sample size
-    nfft: usize,
-
-    #[arg(short, long, default_value_t = 0.1)]
-    ///Filter cutoff frequency
-    w: f32,
-
-    #[arg(short, long, default_value_t = 100)]
-    ///Lenght of fir filter
-    lenght_fir: usize,
-
-    #[arg(short, long, default_value_t = 100)]
-    ///Number of samples that get averaged into one
-    decemation_len: usize,
-
-    ///Circular convolution type: add, save
-    #[arg(short, long, default_value = "add")]
-    conv_type: String,
-
-    #[arg(short, long)]
-    ///Song file path
-    file_name: String,
-
-    #[arg(short, long, default_value_t = 10.0)]
-    ///Number of seconds to analyze
-    sec_to_run: f32,
-
-    #[arg(short, long, default_value = "blackman")]
-    ///Window function
-    window_function: String,
-
-    #[arg(short, long, default_value_t = 0.5)]
-    ///Attenuation factor for harmonics
-    attenuation_factor: f32,
-}
-
 #[derive(Debug)]
 pub struct NotePeak {
-    time: f32,
-    ampl: f32,
-    index: usize,
+    pub time: f32,
+    pub ampl: f32,
+    pub index: usize,
 }
 
 pub const THREADS: usize = 8;
@@ -121,7 +80,7 @@ const offset_table: [usize; 6] = [0, 5, 10, 15, 19, 24];
 
 //ADD THREAD DETECTION FOR INDIVIDUAL CPUs
 fn main() {
-    let args = Args::parse();
+    let args = cli::Args::parse();
     let sample_len = args.nfft;
 
     let h = post_processing::lp_filter(args.w, args.lenght_fir);
@@ -146,7 +105,7 @@ fn main() {
             let mut notes_on_string = vec![Vec::new(); 20];
             for n in 0..20 {
                 notes_on_string[n] =
-                    fft::convolve(&song, &sample_notes[n], &window, &conv_type, sample_len);
+                    fft::convolve(&song, &sample_notes[n], &window, &conv_type, None);
             }
 
             notes_on_string
@@ -175,7 +134,7 @@ fn main() {
             for n in 0..20 {
                 let mut note_data = string_data.remove(0);
                 //FFT method
-                out_string_data[n] = fft::convolve(&note_data, &h, &window, &conv_type, sample_len); // applying low pass filter
+                out_string_data[n] = fft::convolve(&note_data, &h, &window, &conv_type, None); // applying low pass filter
 
                 out_string_data[n] =
                     post_processing::block_max_decemation(&out_string_data[n], args.decemation_len);
@@ -234,7 +193,6 @@ fn generate_all_notes() -> Vec<Note> {
     all_notes
 }
 
-//modify to convolve
 fn generate_note_network(
     all_notes: &mut Vec<Note>,
     sample_notes: &Vec<Vec<Vec<i16>>>,
@@ -252,7 +210,7 @@ fn generate_note_network(
             &sample_notes[5 - note / 20][note % 20],
             &window,
             "add",
-            sample_len,
+            None,
         );
 
         // zero index compare
@@ -278,7 +236,7 @@ fn generate_note_network(
                 &sample_notes[5 - h / 20][h % 20],
                 &window,
                 "add",
-                sample_len,
+                None,
             );
             // zero index compare
             //let mut intensity = conv[0];

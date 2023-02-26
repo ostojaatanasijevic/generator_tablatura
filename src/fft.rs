@@ -31,8 +31,17 @@ pub fn convolve<T: unsinkable, U: unsinkable>(
     input_small: &Vec<U>,
     window: &Vec<f32>,
     convolution_type: &str,
-    sample_len: usize,
+    sample_len: Option<usize>,
 ) -> Vec<f32> {
+    let s: usize;
+    match sample_len {
+        None => s = input_small.len(),
+        Some(sample_len) => s = sample_len,
+    }
+    let sample_len = s;
+
+    println!("convolving with sample_len: {sample_len}");
+
     let mut start_index: usize = 0;
     let mut stop_index: usize = sample_len;
     let mut nfft: usize = sample_len;
@@ -58,7 +67,7 @@ pub fn convolve<T: unsinkable, U: unsinkable>(
     //PROCESS SMALL CHUNK
     let mut h = vec![Complex { re: 0.0, im: 0.0 }; nfft];
 
-    for i in 0..input_small.len() {
+    for i in 0..sample_len {
         h[i].re = (input_small[i].to_float()) * window[i] / 65536.0;
     }
 
