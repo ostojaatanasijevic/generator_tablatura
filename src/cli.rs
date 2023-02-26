@@ -8,7 +8,7 @@ pub struct Args {
     ///Lenght of fft sample size
     pub nfft: usize,
 
-    #[arg(short, long, default_value_t = 0.1)]
+    #[arg(short, long, default_value_t = 0.2)]
     ///Filter cutoff frequency
     pub w: f32,
 
@@ -40,7 +40,7 @@ pub struct Args {
     ///Attenuation factor for harmonics
     pub attenuation_factor: f32,
 
-    #[arg(short, long, default_value_t = 1.0)]
+    #[arg(short, long, default_value_t = 3.5)]
     ///Power for the harmonics ratio to be raised to
     pub power_of_harmonics: f32,
 
