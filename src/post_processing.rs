@@ -5,6 +5,7 @@ use std::error::Error;
 use std::io::IoSlice;
 use std::io::Write;
 use std::path::Path;
+use std::string;
 use std::thread;
 
 use crate::cli::Args;
@@ -18,6 +19,26 @@ use crate::NotesToIndex;
 use crate::Peaks;
 
 pub const PI: f32 = 3.14159265359;
+
+pub fn eliminate_by_string(string_data: &Vec<Vec<f32>>) -> Vec<Vec<f32>> {
+    let mut out = vec![vec![0.0; string_data[0].len()]; string_data.len()];
+
+    for t in 0..string_data[0].len() {
+        //find max in this moment
+        let mut max = string_data[0][t];
+        let mut max_note = 0;
+        for note in 1..string_data.len() {
+            if string_data[note][t] > max {
+                max = string_data[note][t];
+                max_note = note;
+            }
+        }
+
+        out[max_note][t] = max;
+    }
+
+    out
+}
 
 //pub fn butterworth(n: usize, attenuation_db: f32) -> (Vec<f32>, Vec<f32>) {}
 

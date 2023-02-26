@@ -29,7 +29,7 @@ pub fn plot_data_norm(data: &Vec<Vec<Vec<f32>>>, prefix: &str, sec: f32) {
         let filename_base = filename.clone();
 
         handles.push(thread::spawn(move || {
-            for n in 0..20 {
+            for n in 0..string_data.len() {
                 let note_data = string_data.remove(0);
                 let len = note_data.len() as f32;
                 let filename = format!("{filename_base}{}{}.png", STRINGS[i], n);

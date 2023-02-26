@@ -155,8 +155,6 @@ fn main() {
 
     println!("fir filters applied");
 
-    plot::plot_data_norm(&note_intensity, "before_", sec_to_run);
-
     let mut note_intensity = attenuate_harmonics(
         &note_intensity,
         &all_notes,
@@ -164,41 +162,14 @@ fn main() {
         args.power_of_harmonics,
     );
 
-    /*
-    let h = post_processing::lp_filter(args.output_cutoff, 50);
-    let mut handles = vec![];
-    for i in 0..6 {
-        let h = h.clone();
-        let mut string_data = note_intensity.remove(0);
-        let window = window.clone();
-        let conv_type = args.conv_type.clone();
+    plot::plot_data_norm(&note_intensity, "before_", sec_to_run);
 
-        handles.push(thread::spawn(move || {
-            let mut out_string_data = vec![Vec::new(); 20];
-
-            for n in 0..20 {
-                let mut note_data = string_data.remove(0);
-                //FFT method
-                out_string_data[n] = fft::convolve(&note_data, &h, &window, &conv_type, None);
-                // applying low pass filter
-
-                //out_string_data[n] = post_processing::decemation(&out_string_data[n], args.decemation_len);
-
-                //slow as all hell
-                //out_string_data[n] = post_processing::fir_filter(&h, &mut note_data);
-            }
-
-            (i, out_string_data)
-        }));
-    }
-
-    let mut note_intensity = vec![Vec::new(); 6];
-    for handle in handles {
-        let tmp = handle.join().unwrap();
-        note_intensity[tmp.0] = tmp.1;
-    }
-
-    */
+    note_intensity[0] = post_processing::eliminate_by_string(&note_intensity[0]);
+    note_intensity[1] = post_processing::eliminate_by_string(&note_intensity[5][0..5].to_vec());
+    note_intensity[2] = post_processing::eliminate_by_string(&note_intensity[5][0..4].to_vec());
+    note_intensity[3] = post_processing::eliminate_by_string(&note_intensity[5][0..5].to_vec());
+    note_intensity[4] = post_processing::eliminate_by_string(&note_intensity[5][0..5].to_vec());
+    note_intensity[5] = post_processing::eliminate_by_string(&note_intensity[5][0..5].to_vec());
 
     plot::plot_data_norm(&note_intensity, "after_", sec_to_run);
     plot::draw_plot("plots/fir.png", h, 1.0, 1);
