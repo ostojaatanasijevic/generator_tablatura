@@ -5,6 +5,7 @@
 mod cli;
 mod fft;
 mod fourier;
+mod freq_generator;
 mod misc;
 mod plot;
 mod post_processing;
@@ -16,7 +17,9 @@ use num::complex::ComplexFloat;
 use num::traits::Pow;
 use num::FromPrimitive;
 use plotters::prelude::*;
+use rayon::vec;
 use rustfft::{num_complex::Complex, FftPlanner};
+use std::cmp;
 use std::env;
 use std::error::Error;
 use std::f32::consts::PI;
@@ -72,6 +75,48 @@ pub struct Note {
 
 const offset_table: [usize; 6] = [0, 5, 10, 15, 19, 24];
 
+fn open_sample_notes(sample_len: usize) -> Vec<Vec<Vec<i16>>> {
+    let fs = 44100.0;
+    let secs = sample_len as f32 / fs;
+    let mut out = vec![vec![Vec::new(); 20]; 6];
+
+    for string in 0..6 {
+        for note in 0..20 {
+            let freq = HERZ[offset_table[5 - string] + note]
+                .parse::<f32>()
+                .unwrap();
+
+            out[string][note] = freq_generator::sin(freq, fs, secs); // 2.0
+        }
+    }
+
+    out
+}
+
+fn generate_volume_map(song: &Vec<i16>, decemation_len: usize) -> Vec<f32> {
+    // first abs
+    let mut before: Vec<f32> = Vec::new();
+
+    for sample in song.iter() {
+        before.push(sample.abs() as f32);
+    }
+
+    let out = post_processing::block_max_decemation(&before, decemation_len);
+    out
+}
+
+fn vector_multiply(a: &Vec<f32>, b: &Vec<f32>) -> Vec<f32> {
+    let mut out: Vec<f32> = Vec::new();
+    let len = cmp::min(a.len(), b.len());
+    println!("first len {}, second {}", a.len(), b.len());
+
+    for t in 0..len {
+        out.push(a[t] * b[t]);
+    }
+
+    out
+}
+
 //ADD THREAD DETECTION FOR INDIVIDUAL CPUs
 fn main() {
     let args = cli::Args::parse();
@@ -82,9 +127,21 @@ fn main() {
     let song = fourier::open_song(&args.file_name, sec_to_run);
     let window = fourier::calculate_window_function(sample_len, &args.window_function); // blackman je bolji od hann
 
-    let sample_notes = fourier::open_sample_notes(sample_len);
+    //let volume_map = generate_volume_map(&song, args.decemation_len);
+
+    let sample_notes = open_sample_notes(sample_len);
     let mut all_notes = generate_all_notes();
     generate_note_network(&mut all_notes, &sample_notes, &window, sample_len);
+
+    for note in all_notes.iter() {
+        println!("Za notu: {}", note.name);
+        for harm in note.harmonics.iter() {
+            println!(
+                "Harmonik {} je intenziteta {}",
+                all_notes[harm.0].name, harm.1
+            );
+        }
+    }
 
     println!("starting convolution...");
     let mut note_intensity = Vec::new();
@@ -144,16 +201,6 @@ fn main() {
         note_intensity[tmp.0] = tmp.1;
     }
 
-    //post_processing::threaded_fir_filter(&h, &note_intensity, &window, &args);
-
-    /*
-    for s in 0..6 {
-        for n in 0..20 {
-            post_processing::fir_filter(&h, &mut note_intensity[s][n]);
-        }
-    }
-    */
-
     println!("fir filters applied");
 
     let mut note_intensity_att = attenuate_harmonics(
@@ -163,12 +210,6 @@ fn main() {
         args.power_of_harmonics,
     );
 
-    /*
-    note_intensity[1] = post_processing::eliminate_by_string(&note_intensity[1][0..5].to_vec());
-    note_intensity[2] = post_processing::eliminate_by_string(&note_intensity[2][0..4].to_vec());
-    note_intensity[3] = post_processing::eliminate_by_string(&note_intensity[3][0..5].to_vec());
-    note_intensity[4] = post_processing::eliminate_by_string(&note_intensity[4][0..5].to_vec());
-    */
     /*
     // find the max on E0 - E4, that's a sure bet
     let mut temp = post_processing::eliminate_by_string(&note_intensity[5][0..5].to_vec());
@@ -181,12 +222,6 @@ fn main() {
         note_intensity[0][n] = temp.remove(0);
     }
     */
-
-    plot::plot_data_norm(&note_intensity_att, "att_", sec_to_run);
-
-    let mut note_intensity_add = add_harmonics(&note_intensity, &all_notes, 1.0, 1.0);
-
-    plot::plot_data_norm(&note_intensity_add, "add_", sec_to_run);
 
     plot::plot_data_norm(&note_intensity, "original_", sec_to_run);
 }
@@ -233,9 +268,9 @@ fn generate_note_network(
         // zero index compare
         //let mut baseline = auto_conv[0];
         // average compare
-        //let mut baseline = auto_conv.iter().sum::<f32>();
+        let mut baseline = auto_conv.iter().sum::<f32>();
         // max based compare
-        let baseline = auto_conv.iter().max_by(|a, b| a.total_cmp(b)).unwrap();
+        //let baseline = auto_conv.iter().max_by(|a, b| a.total_cmp(b)).unwrap();
         //for each higher harmonic convolve and save ratio
         for h in 0..end {
             let ratio = all_notes[h].freq / all_notes[note].freq;
@@ -253,9 +288,9 @@ fn generate_note_network(
             // zero index compare
             //let mut intensity = conv[0];
             // average compare
-            //let mut intensity = conv.iter().sum::<f32>();
+            let mut intensity = conv.iter().sum::<f32>();
             // max based compare
-            let intensity = conv.iter().max_by(|a, b| a.total_cmp(b)).unwrap();
+            //let intensity = conv.iter().max_by(|a, b| a.total_cmp(b)).unwrap();
 
             /*
             plot::draw_plot(
