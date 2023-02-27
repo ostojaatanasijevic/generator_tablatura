@@ -1,5 +1,6 @@
 #![allow(warnings, unused)]
 // KORISTI REALFFT
+// ADAPTIRAJ INTENZITET SIGURNOSTI U NOTU U POREDJENU SA INTENZITETIOM PESME
 
 mod cli;
 mod fft;
@@ -155,24 +156,39 @@ fn main() {
 
     println!("fir filters applied");
 
-    let mut note_intensity = attenuate_harmonics(
+    let mut note_intensity_att = attenuate_harmonics(
         &note_intensity,
         &all_notes,
         args.attenuation_factor,
         args.power_of_harmonics,
     );
 
-    plot::plot_data_norm(&note_intensity, "before_", sec_to_run);
+    /*
+    note_intensity[1] = post_processing::eliminate_by_string(&note_intensity[1][0..5].to_vec());
+    note_intensity[2] = post_processing::eliminate_by_string(&note_intensity[2][0..4].to_vec());
+    note_intensity[3] = post_processing::eliminate_by_string(&note_intensity[3][0..5].to_vec());
+    note_intensity[4] = post_processing::eliminate_by_string(&note_intensity[4][0..5].to_vec());
+    */
+    /*
+    // find the max on E0 - E4, that's a sure bet
+    let mut temp = post_processing::eliminate_by_string(&note_intensity[5][0..5].to_vec());
+    for n in 0..5 {
+        note_intensity[5][n] = temp.remove(0);
+    }
+    // e15 - 20 as well
+    let mut temp = post_processing::eliminate_by_string(&note_intensity[0][15..20].to_vec());
+    for n in 15..20 {
+        note_intensity[0][n] = temp.remove(0);
+    }
+    */
 
-    note_intensity[0] = post_processing::eliminate_by_string(&note_intensity[0]);
-    note_intensity[1] = post_processing::eliminate_by_string(&note_intensity[5][0..5].to_vec());
-    note_intensity[2] = post_processing::eliminate_by_string(&note_intensity[5][0..4].to_vec());
-    note_intensity[3] = post_processing::eliminate_by_string(&note_intensity[5][0..5].to_vec());
-    note_intensity[4] = post_processing::eliminate_by_string(&note_intensity[5][0..5].to_vec());
-    note_intensity[5] = post_processing::eliminate_by_string(&note_intensity[5][0..5].to_vec());
+    plot::plot_data_norm(&note_intensity_att, "att_", sec_to_run);
 
-    plot::plot_data_norm(&note_intensity, "after_", sec_to_run);
-    plot::draw_plot("plots/fir.png", h, 1.0, 1);
+    let mut note_intensity_add = add_harmonics(&note_intensity, &all_notes, 1.0, 1.0);
+
+    plot::plot_data_norm(&note_intensity_add, "add_", sec_to_run);
+
+    plot::plot_data_norm(&note_intensity, "original_", sec_to_run);
 }
 
 fn generate_all_notes() -> Vec<Note> {
@@ -280,6 +296,37 @@ fn attenuate_harmonics(
             for t in 0..out[wire][tab].len() {
                 out[wire][tab][t] -=
                     factor * out[5 - note / 20][note % 20][t] * (hb.1).pow(power_of_harmonics);
+            }
+
+            println!(
+                "Attenuating {} with {} and a ratio of {}, bfr",
+                &all_notes[hb.0].name,
+                &all_notes[note].name,
+                hb.1 * factor
+            );
+        }
+    }
+
+    out
+}
+
+fn add_harmonics(
+    note_intensity: &Vec<Vec<Vec<f32>>>,
+    all_notes: &Vec<Note>,
+    factor: f32,
+    power_of_harmonics: f32,
+) -> Vec<Vec<Vec<f32>>> {
+    let mut out = note_intensity.clone();
+
+    // E A D G B e
+    for note in (0..120).rev() {
+        for hb in all_notes[note].harmonics.iter() {
+            let wire = 5 - note / 20;
+            let tab = note % 20;
+
+            for t in 0..out[wire][tab].len() {
+                out[wire][tab][t] +=
+                    factor * out[5 - hb.0 / 20][hb.0 % 20][t] * (hb.1).pow(power_of_harmonics);
             }
 
             println!(
