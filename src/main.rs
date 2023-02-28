@@ -10,13 +10,19 @@ mod misc;
 mod plot;
 mod post_processing;
 
+use std::cell::RefCell;
+use std::rc::Rc;
+
+use gtk::prelude::*;
+use plotters::prelude::*;
+use plotters_cairo::CairoBackend;
+
 use clap::Parser;
 use fast_float::parse;
 use misc::hertz_to_notes;
 use num::complex::ComplexFloat;
 use num::traits::Pow;
 use num::FromPrimitive;
-use plotters::prelude::*;
 use rayon::vec;
 use rustfft::{num_complex::Complex, FftPlanner};
 use std::cmp;
@@ -155,7 +161,8 @@ fn main() {
         handles.push(thread::spawn(move || {
             let mut notes_on_string = vec![Vec::new(); 20];
             for n in 0..20 {
-                notes_on_string[n] = fft::convolve(&song, &sample_notes[n], &window, None);
+                notes_on_string[n] =
+                    fft::interlaced_convolution(&song, &sample_notes[n], &window, None, 512);
             }
 
             notes_on_string
@@ -186,6 +193,7 @@ fn main() {
             for n in 0..20 {
                 let mut note_data = string_data.remove(0);
                 //FFT method
+                //za nepravilan broj padduj do 2_n
                 out_string_data[n] = fft::convolve(&note_data, &h, &window, None); // applying low pass filter
                 out_string_data[n] =
                     post_processing::block_max_decemation(&out_string_data[n], args.decemation_len);
@@ -202,14 +210,6 @@ fn main() {
     }
 
     println!("fir filters applied");
-
-    let mut note_intensity_att = attenuate_harmonics(
-        &note_intensity,
-        &all_notes,
-        args.attenuation_factor,
-        args.power_of_harmonics,
-    );
-
     /*
     // find the max on E0 - E4, that's a sure bet
     let mut temp = post_processing::eliminate_by_string(&note_intensity[5][0..5].to_vec());
@@ -222,8 +222,16 @@ fn main() {
         note_intensity[0][n] = temp.remove(0);
     }
     */
+    let application = gtk::Application::new(
+        Some("io.github.plotters-rs.plotters-gtk-demo"),
+        Default::default(),
+    );
 
-    plot::plot_data_norm(&note_intensity, "original_", sec_to_run);
+    application.connect_activate(move |app| {
+        build_ui(app, &note_intensity, args.sec_to_run, &all_notes);
+    });
+
+    application.run_with_args(&[""]);
 }
 
 fn generate_all_notes() -> Vec<Note> {
@@ -291,15 +299,6 @@ fn generate_note_network(
             let mut intensity = conv.iter().sum::<f32>();
             // max based compare
             //let intensity = conv.iter().max_by(|a, b| a.total_cmp(b)).unwrap();
-
-            /*
-            plot::draw_plot(
-                &format!("plots/{}_{}.png", &all_notes[note].name, &all_notes[h].name),
-                conv,
-                1.0,
-                1,
-            );
-            */
             /*
             println!(
                 "ratio of relation: {}_{} is {}",
@@ -331,6 +330,10 @@ fn attenuate_harmonics(
             for t in 0..out[wire][tab].len() {
                 out[wire][tab][t] -=
                     factor * out[5 - note / 20][note % 20][t] * (hb.1).pow(power_of_harmonics);
+
+                if out[wire][tab][t] < 0.0 {
+                    out[wire][tab][t] = 0.0;
+                }
             }
 
             println!(
@@ -374,4 +377,200 @@ fn add_harmonics(
     }
 
     out
+}
+const GLADE_UI_SOURCE: &'static str = include_str!("ui.glade");
+
+#[derive(Clone)]
+struct PlottingState {
+    x_offset: f64,
+    y_scale: f64,
+    std_x: f64,
+    std_y: f64,
+    pitch: f64,
+    roll: f64,
+    note: usize,
+    string: usize,
+    time_res: f32,
+    data_orig: Box<Vec<Vec<Vec<f32>>>>,
+    data_curr: Box<Vec<Vec<Vec<f32>>>>,
+}
+
+impl PlottingState {
+    fn plot_pdf<'a, DB: DrawingBackend + 'a>(
+        &self,
+        backend: DB,
+        data: &Vec<Vec<Vec<f32>>>,
+        time: f32,
+    ) -> Result<(), Box<dyn Error + 'a>> {
+        let x_offset = (self.x_offset * 10.0) as usize;
+
+        let end_point = cmp::min(
+            x_offset + (self.roll as f32 / 20.0 * data[0][0].len() as f32) as usize,
+            data[0][0].len(),
+        );
+
+        let mut max: f32 = 0.1;
+
+        let root = backend.into_drawing_area();
+
+        root.fill(&WHITE)?;
+
+        let mut chart = ChartBuilder::on(&root)
+            .set_label_area_size(LabelAreaPosition::Left, 60)
+            .set_label_area_size(LabelAreaPosition::Bottom, 60)
+            .build_cartesian_2d(0..end_point - x_offset, 0.0..max)?;
+
+        println!("{}:{}:{}", x_offset, end_point, end_point - x_offset);
+
+        chart
+            .configure_mesh()
+            .disable_x_mesh()
+            .disable_y_mesh()
+            .x_label_formatter(&|x| format!("{}", ((*x + x_offset) as f32 * self.time_res) as f32))
+            .y_labels(0)
+            .draw()?;
+
+        for note in 0..data[0].len() {
+            chart.draw_series(
+                AreaSeries::new(
+                    (0..)
+                        .zip(data[self.pitch as usize][note][x_offset..end_point].iter())
+                        .map(|(x, y)| (x, *y / 20.0 * self.y_scale as f32 + note as f32 / 200.0)),
+                    note as f32 / 200.0,
+                    &RED.mix(0.2),
+                )
+                .border_style(&RED),
+            )?;
+
+            root.draw(&Text::new(
+                format!("{}{}", STRINGS[self.pitch as usize], note),
+                (
+                    10,
+                    ((20 - note) as i32 * root.get_pixel_range().1.end as i32 / 21) as i32,
+                ),
+                ("sans-serif", 15.0).into_font(),
+            ));
+        }
+
+        root.present()?;
+        Ok(())
+    }
+}
+
+fn build_ui(app: &gtk::Application, data: &Vec<Vec<Vec<f32>>>, sec: f32, all_notes: &Vec<Note>) {
+    let builder = gtk::Builder::from_string(GLADE_UI_SOURCE);
+    let window = builder.object::<gtk::Window>("MainWindow").unwrap();
+
+    window.set_title("Generator tablatura");
+
+    let drawing_area: gtk::DrawingArea = builder.object("MainDrawingArea").unwrap();
+    let string_slider = builder.object::<gtk::Scale>("StringSlider").unwrap();
+    let yaw_scale = builder.object::<gtk::Scale>("YawScale").unwrap();
+    let time_slider = builder.object::<gtk::Scale>("TimeSlider").unwrap();
+    let y_scale_slider = builder.object::<gtk::Scale>("MeanYScale").unwrap();
+    let std_x_scale = builder.object::<gtk::Scale>("SDXScale").unwrap();
+    let std_y_scale = builder.object::<gtk::Scale>("SDYScale").unwrap();
+
+    let note_default = 2;
+    let string_default = 0;
+
+    let app_state = Rc::new(RefCell::new(PlottingState {
+        x_offset: time_slider.value(),
+        y_scale: y_scale_slider.value(),
+        std_x: std_x_scale.value(),
+        std_y: std_y_scale.value(),
+        pitch: string_slider.value(),
+        roll: yaw_scale.value(),
+        note: note_default,
+        string: string_default,
+        time_res: sec / data.len() as f32,
+        data_orig: Box::new(data.clone()),
+        data_curr: Box::new(data.clone()),
+    }));
+
+    window.set_application(Some(app));
+
+    // detect std_x
+    let mut out = std_x_scale.connect_value_changed(move |target| println!("change"));
+
+    let state_cloned = app_state.clone();
+    let mut data = data.clone();
+    let mut data_att = data.clone();
+    drawing_area.connect_draw(move |widget, cr| {
+        let state = state_cloned.borrow().clone();
+        let w = widget.allocated_width();
+        let h = widget.allocated_height();
+        let backend = CairoBackend::new(cr, (w as u32, h as u32)).unwrap();
+        state.plot_pdf(backend, &*state.data_curr, sec).unwrap();
+        Inhibit(false)
+    });
+
+    let handle_change =
+        |what: &gtk::Scale, how: Box<dyn Fn(&mut PlottingState) -> &mut f64 + 'static>| {
+            let app_state = app_state.clone();
+            let drawing_area = drawing_area.clone();
+            what.connect_value_changed(move |target| {
+                let mut state = app_state.borrow_mut();
+                *how(&mut *state) = target.value();
+                drawing_area.queue_draw();
+            });
+        };
+
+    let recalculate_linear_attenuation = |what: &gtk::Scale,
+                                          how: Box<
+        dyn Fn(&mut PlottingState) -> &mut Box<Vec<Vec<Vec<f32>>>> + 'static,
+    >,
+                                          factor: Box<
+        dyn Fn(&mut PlottingState) -> &mut f64 + 'static,
+    >| {
+        let app_state = app_state.clone();
+        let drawing_area = drawing_area.clone();
+        let all_notes = all_notes.clone();
+        what.connect_value_changed(move |target| {
+            let mut state = app_state.borrow_mut();
+            *factor(&mut *state) = target.value();
+            **how(&mut *state) =
+                attenuate_harmonics(&data, &all_notes, target.value() as f32, state.std_y as f32);
+            drawing_area.queue_draw();
+        });
+    };
+
+    let recalculate_exponential_attenuation =
+        |what: &gtk::Scale,
+         how: Box<dyn Fn(&mut PlottingState) -> &mut Box<Vec<Vec<Vec<f32>>>> + 'static>,
+         factor: Box<dyn Fn(&mut PlottingState) -> &mut f64 + 'static>| {
+            let app_state = app_state.clone();
+            let drawing_area = drawing_area.clone();
+            let all_notes = all_notes.clone();
+            what.connect_value_changed(move |target| {
+                let mut state = app_state.borrow_mut();
+                *factor(&mut *state) = target.value();
+                **how(&mut *state) = attenuate_harmonics(
+                    &state.data_orig,
+                    &all_notes,
+                    state.std_x as f32,
+                    target.value() as f32,
+                );
+                //                data = data.clone();
+                drawing_area.queue_draw();
+            });
+        };
+
+    handle_change(&string_slider, Box::new(|s| &mut s.pitch));
+    handle_change(&yaw_scale, Box::new(|s| &mut s.roll));
+    handle_change(&time_slider, Box::new(|s| &mut s.x_offset));
+    handle_change(&y_scale_slider, Box::new(|s| &mut s.y_scale));
+
+    recalculate_linear_attenuation(
+        &std_x_scale,
+        Box::new(|s| &mut s.data_curr),
+        Box::new(|s| &mut s.std_x),
+    );
+    recalculate_exponential_attenuation(
+        &std_y_scale,
+        Box::new(|s| &mut s.data_curr),
+        Box::new(|s| &mut s.std_y),
+    );
+
+    window.show_all();
 }

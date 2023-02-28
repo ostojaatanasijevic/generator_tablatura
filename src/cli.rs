@@ -24,11 +24,11 @@ pub struct Args {
     #[arg(short, long, default_value = "add")]
     pub conv_type: String,
 
-    #[arg(short, long)]
+    #[arg(short, long, default_value = "songs/januar.wav")]
     ///Song file path
     pub file_name: String,
 
-    #[arg(short, long, default_value_t = 10.0)]
+    #[arg(short, long, default_value_t = 20.0)]
     ///Number of seconds to analyze
     pub sec_to_run: f32,
 
@@ -47,4 +47,8 @@ pub struct Args {
     #[arg(short, long, default_value_t = 0.1)]
     ///Outout filter cutoff frequency
     pub output_cutoff: f32,
+
+    #[arg(short, long, default_value_t = 0.0)]
+    ///Max plot value
+    pub max_plot_value: f32,
 }

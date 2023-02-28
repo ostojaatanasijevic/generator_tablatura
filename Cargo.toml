@@ -9,7 +9,6 @@ edition = "2021"
 rustfft = "6.1.0"
 wav = "1.0.0"
 csv = "1.1"
-plotters = "0.3"
 fast-float = "0.2"
 rand_distr = "0.4.3"
 rand_xorshift = "0.3.0"
@@ -17,3 +16,13 @@ rand = "0.8.4"
 rayon = "1.6.1"
 num = "0.4"
 clap = { version = "4.1.6", features = ["derive"] }
+gtk = "0.17.0"
+cairo-rs = "0.17.0"
+
+[dependencies.plotters]
+git = "https://github.com/plotters-rs/plotters"
+default_features = true
+features = ["surface_series"]
+
+[dependencies.plotters-cairo]
+git = "https://github.com/plotters-rs/plotters-cairo"

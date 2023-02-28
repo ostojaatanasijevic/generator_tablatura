@@ -18,10 +18,10 @@ use crate::NotesToIndex;
 use crate::Peaks;
 
 pub fn single_plot_data_norm(data: Vec<f32>) {
-    draw_plot("plots/plot0.png", data.to_vec(), T_RES as f32, 1).unwrap();
+    draw_plot("plots/plot0.png", data.to_vec(), T_RES as f32, 1, 0.0).unwrap();
 }
 
-pub fn plot_data_norm(data: &Vec<Vec<Vec<f32>>>, prefix: &str, sec: f32) {
+pub fn plot_data_norm(data: &Vec<Vec<Vec<f32>>>, prefix: &str, sec: f32, max_plot_value: f32) {
     let mut filename = format!("plots/{prefix}");
     let mut handles = vec![];
     for i in 0..6 {
@@ -33,7 +33,7 @@ pub fn plot_data_norm(data: &Vec<Vec<Vec<f32>>>, prefix: &str, sec: f32) {
                 let note_data = string_data.remove(0);
                 let len = note_data.len() as f32;
                 let filename = format!("{filename_base}{}{}.png", STRINGS[i], n);
-                draw_plot(&filename, note_data, sec / len, 1).unwrap();
+                draw_plot(&filename, note_data, sec / len, 1, max_plot_value).unwrap();
             }
         }));
     }
@@ -54,6 +54,7 @@ pub fn plot_data(data: Vec<Vec<Complex<f32>>>) {
             data[note].iter().map(|a| a.norm()).collect(),
             T_RES as f32,
             1,
+            0.0,
         )
         .unwrap();
     }
@@ -64,13 +65,15 @@ pub fn draw_plot(
     data: Vec<f32>,
     time: f32,
     div: usize,
+    max_plot_value: f32,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let root = BitMapBackend::new(plot_name, (1024, 768)).into_drawing_area();
     let mut freq: Vec<f32> = Vec::new();
-    let max = 0.005;
-    let temp: Vec<f32> = vec![0.0, max];
-    let max = temp.iter().max_by(|a, b| a.total_cmp(b)).unwrap();
-    let max = data.iter().max_by(|a, b| a.total_cmp(b)).unwrap();
+    let mut max: f32 = *data.iter().max_by(|a, b| a.total_cmp(b)).unwrap();
+
+    if max_plot_value != 0.0 {
+        max = max_plot_value;
+    }
 
     root.fill(&WHITE)?;
 
@@ -78,7 +81,7 @@ pub fn draw_plot(
         .set_label_area_size(LabelAreaPosition::Left, 60)
         .set_label_area_size(LabelAreaPosition::Bottom, 60)
         .caption(plot_name, ("sans-serif", 40))
-        .build_cartesian_2d(0..(data.len() / div - 1), 0.0..*max)?;
+        .build_cartesian_2d(0..(data.len() / div - 1), 0.0..max)?;
 
     chart
         .configure_mesh()
