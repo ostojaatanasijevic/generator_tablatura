@@ -10,6 +10,7 @@ use std::thread;
 
 use crate::cli::Args;
 use crate::fft;
+use crate::fourier::calculate_window_function;
 use crate::AVG_LEN;
 use crate::THREADS;
 use crate::T_RES;
@@ -19,6 +20,49 @@ use crate::NotesToIndex;
 use crate::Peaks;
 
 pub const PI: f32 = 3.14159265359;
+
+pub fn threaded_fft_fir_filtering(
+    note_intensity: Vec<Vec<Vec<f32>>>,
+    h: &Vec<f32>,
+    args: &Args,
+) -> Vec<Vec<Vec<f32>>> {
+    let mut note_intensity = note_intensity;
+    let window = crate::fourier::calculate_window_function(h.len(), &args.window_function); // blackman je bolji od hann
+    let mut handles = vec![];
+    for i in 0..6 {
+        let h = h.clone();
+        let mut string_data = note_intensity.remove(0);
+        let window = window.clone();
+        let dec_len = args.decemation_len;
+
+        handles.push(thread::spawn(move || {
+            let mut out_string_data = Vec::new();
+
+            for n in 0..crate::DIFF_TABLE[i] {
+                let mut note_data = string_data.remove(0);
+                let temp = fft::convolve(&note_data, &h, &window, None); // applying low pass filter
+                out_string_data.push(block_max_decemation(&temp, dec_len));
+            }
+
+            (i, out_string_data)
+        }));
+    }
+
+    let mut note_intensity = vec![Vec::new(); 6];
+    for handle in handles {
+        let tmp = handle.join().unwrap();
+        note_intensity[tmp.0] = tmp.1;
+    }
+
+    for wire in 1..6 {
+        for i in 0..20 - crate::DIFF_TABLE[wire] {
+            let temp = note_intensity[wire - 1][i].clone();
+            note_intensity[wire].push(temp);
+        }
+    }
+
+    note_intensity
+}
 
 pub fn eliminate_by_string(string_data: &Vec<Vec<f32>>) -> Vec<Vec<f32>> {
     let mut out = vec![vec![0.0; string_data[0].len()]; string_data.len()];
@@ -88,45 +132,6 @@ pub fn fir_filter(h: &Vec<f32>, input: &Vec<f32>) -> Vec<f32> {
     out
 }
 
-pub fn threaded_fir_filter(
-    h: &Vec<f32>,
-    note_intensity: &Vec<Vec<Vec<f32>>>,
-    window: &Vec<f32>,
-    args: &Args,
-) -> Vec<Vec<Vec<f32>>> {
-    let mut handles = vec![];
-
-    let mut note_intensity = note_intensity.clone();
-    for i in 0..6 {
-        let h = h.clone();
-        let mut string_data = note_intensity.remove(0);
-        let window = window.clone();
-        let conv_type = args.conv_type.clone();
-
-        let decemation_len = args.decemation_len;
-
-        handles.push(thread::spawn(move || {
-            let mut out_string_data = vec![Vec::new(); 20];
-
-            for n in 0..20 {
-                let mut note_data = string_data.remove(0);
-                //FFT method
-                out_string_data[n] = fft::convolve(&note_data, &h, &window, None); // applying low pass filter
-                out_string_data[n] = block_max_decemation(&out_string_data[n], decemation_len);
-            }
-
-            (i, out_string_data)
-        }));
-    }
-
-    let mut note_intensity = vec![Vec::new(); 6];
-    for handle in handles {
-        let tmp = handle.join().unwrap();
-        note_intensity[tmp.0] = tmp.1;
-    }
-    note_intensity
-}
-
 pub fn iir_filter(b: &Vec<f32>, a: &Vec<f32>, input: &Vec<f32>) -> Vec<f32> {
     let mut out = vec![0.0; input.len() + b.len()];
 
@@ -185,7 +190,7 @@ pub fn process_of_elimination(data: &Vec<Vec<Vec<f32>>>) -> Vec<Vec<Vec<f32>>> {
     out
 }
 
-pub fn schmitt(data: &Vec<Vec<Vec<f32>>>, high: f32, low: f32) -> Vec<Vec<Vec<f32>>> {
+pub fn binary_schmitt(data: &Vec<Vec<Vec<f32>>>, high: f32, low: f32) -> Vec<Vec<Vec<f32>>> {
     let mut out = data.clone();
 
     for string in 0..data.len() {
@@ -211,6 +216,38 @@ pub fn schmitt(data: &Vec<Vec<Vec<f32>>>, high: f32, low: f32) -> Vec<Vec<Vec<f3
                         out[string][note][t] = 0.0;
                     } else {
                         out[string][note][t] = 1.0;
+                    }
+                } else {
+                    out[string][note][t] = 0.0;
+                }
+            }
+        }
+    }
+
+    out
+}
+pub fn schmitt(data: &Vec<Vec<Vec<f32>>>, high: f32, low: f32) -> Vec<Vec<Vec<f32>>> {
+    let mut out = data.clone();
+
+    for string in 0..data.len() {
+        for note in 0..data[0].len() {
+            let max = data[string][note]
+                .iter()
+                .max_by(|a, b| a.total_cmp(b))
+                .unwrap();
+
+            let high_thresh = high;
+            let low_thresh = low;
+
+            out[string][note][0] = 0.0;
+            for t in 1..data[string][note].len() {
+                if out[string][note][t - 1] == 0.0 {
+                    if data[string][note][t] <= high_thresh {
+                        out[string][note][t] = 0.0;
+                    }
+                } else if out[string][note][t - 1] > 0.0 {
+                    if data[string][note][t] < low_thresh {
+                        out[string][note][t] = 0.0;
                     }
                 } else {
                     out[string][note][t] = 0.0;
@@ -292,4 +329,28 @@ pub fn find_peaks(data: &Vec<f32>, threshold: f32) -> Vec<NotePeak> {
     }
 
     local_peaks
+}
+
+fn generate_volume_map(song: &Vec<i16>, decemation_len: usize) -> Vec<f32> {
+    // first abs
+    let mut before: Vec<f32> = Vec::new();
+
+    for sample in song.iter() {
+        before.push(sample.abs() as f32);
+    }
+
+    let out = block_max_decemation(&before, decemation_len);
+    out
+}
+
+fn vector_multiply(a: &Vec<f32>, b: &Vec<f32>) -> Vec<f32> {
+    let mut out: Vec<f32> = Vec::new();
+    let len = std::cmp::min(a.len(), b.len());
+    println!("first len {}, second {}", a.len(), b.len());
+
+    for t in 0..len {
+        out.push(a[t] * b[t]);
+    }
+
+    out
 }

@@ -1,11 +1,13 @@
 #![allow(warnings, unused)]
 // KORISTI REALFFT
 // ADAPTIRAJ INTENZITET SIGURNOSTI U NOTU U POREDJENU SA INTENZITETIOM PESME
+// TEMPO SE RAČUNA AUTOKORELACIOJOM SIGNALA
 
 mod cli;
 mod fft;
 mod fourier;
 mod freq_generator;
+mod harmonics;
 mod misc;
 mod plot;
 mod post_processing;
@@ -13,12 +15,14 @@ mod post_processing;
 use std::cell::RefCell;
 use std::rc::Rc;
 
+use cairo::glib::Receiver;
 use gtk::prelude::*;
 use plotters::prelude::*;
 use plotters_cairo::CairoBackend;
 
 use clap::Parser;
 use fast_float::parse;
+use harmonics::Note;
 use misc::hertz_to_notes;
 use num::complex::ComplexFloat;
 use num::traits::Pow;
@@ -33,6 +37,7 @@ use std::fs::File;
 use std::io::IoSlice;
 use std::io::Write;
 use std::path::Path;
+use std::sync::mpsc;
 use std::thread;
 use std::time::Instant;
 
@@ -66,317 +71,35 @@ pub const HERZ: [&str; 44] = [
     "698.46", "739.99", "783.99", "830.61", "880.0", "932.33", "987.77",
 ];
 
-// IZVORI ZABUNE
-// 1. e0 = B5 = G9 itd
-// rešenje: sistemom eliminacije odrediti koja nota zvoni na kojoj žici
-// TEMPO SE RAČUNA AUTOKORELACIOJOM SIGNALA
-//
-
-#[derive(Debug, Clone)]
-pub struct Note {
-    name: String,
-    freq: f32,
-    harmonics: Vec<(usize, f32)>,
-}
-
-const offset_table: [usize; 6] = [0, 5, 10, 15, 19, 24];
-
-fn open_sample_notes(sample_len: usize) -> Vec<Vec<Vec<i16>>> {
-    let fs = 44100.0;
-    let secs = sample_len as f32 / fs;
-    let mut out = vec![vec![Vec::new(); 20]; 6];
-
-    for string in 0..6 {
-        for note in 0..20 {
-            let freq = HERZ[offset_table[5 - string] + note]
-                .parse::<f32>()
-                .unwrap();
-
-            out[string][note] = freq_generator::sin(freq, fs, secs); // 2.0
-        }
-    }
-
-    out
-}
-
-fn generate_volume_map(song: &Vec<i16>, decemation_len: usize) -> Vec<f32> {
-    // first abs
-    let mut before: Vec<f32> = Vec::new();
-
-    for sample in song.iter() {
-        before.push(sample.abs() as f32);
-    }
-
-    let out = post_processing::block_max_decemation(&before, decemation_len);
-    out
-}
-
-fn vector_multiply(a: &Vec<f32>, b: &Vec<f32>) -> Vec<f32> {
-    let mut out: Vec<f32> = Vec::new();
-    let len = cmp::min(a.len(), b.len());
-    println!("first len {}, second {}", a.len(), b.len());
-
-    for t in 0..len {
-        out.push(a[t] * b[t]);
-    }
-
-    out
-}
+const OFFSET_TABLE: [usize; 6] = [0, 5, 10, 15, 19, 24];
+const DIFF_TABLE: [usize; 6] = [20, 5, 4, 5, 5, 5];
 
 //ADD THREAD DETECTION FOR INDIVIDUAL CPUs
 fn main() {
     let args = cli::Args::parse();
-    let sample_len = args.nfft;
 
-    let h = post_processing::lp_filter(args.w, args.lenght_fir);
-    let sec_to_run: f32 = args.sec_to_run;
-    let song = fourier::open_song(&args.file_name, sec_to_run);
-    let window = fourier::calculate_window_function(sample_len, &args.window_function); // blackman je bolji od hann
+    let (tx, rx): (mpsc::Sender<i32>, mpsc::Receiver<i32>) = mpsc::channel();
 
-    //let volume_map = generate_volume_map(&song, args.decemation_len);
+    let th = thread::spawn(move || {
+        println!("gas");
+        tx.send(1).unwrap();
+    });
 
-    let sample_notes = open_sample_notes(sample_len);
-    let mut all_notes = generate_all_notes();
-    generate_note_network(&mut all_notes, &sample_notes, &window, sample_len);
+    rx.recv();
+    th.join().unwrap();
 
-    for note in all_notes.iter() {
-        println!("Za notu: {}", note.name);
-        for harm in note.harmonics.iter() {
-            println!(
-                "Harmonik {} je intenziteta {}",
-                all_notes[harm.0].name, harm.1
-            );
-        }
-    }
+    let note_intensity = process_song(&args);
 
-    println!("starting convolution...");
-    let mut note_intensity = Vec::new();
-    let mut handles = vec![];
-    for i in 0..6 {
-        let song = song.clone();
-        let sample_notes = sample_notes[i].clone();
-        let window = window.clone();
-        let conv_type = args.conv_type.clone();
-
-        handles.push(thread::spawn(move || {
-            let mut notes_on_string = vec![Vec::new(); 20];
-            for n in 0..20 {
-                notes_on_string[n] =
-                    fft::interlaced_convolution(&song, &sample_notes[n], &window, None, 512);
-            }
-
-            notes_on_string
-        }));
-    }
-
-    let mut joined_data: Vec<f32> = Vec::new();
-    for handle in handles {
-        let tmp = handle.join().unwrap();
-        note_intensity.push(tmp);
-    }
-
-    println!("convolution complete!");
-
-    println!("threaded filtering started...");
-
-    let window = fourier::calculate_window_function(h.len(), &args.window_function); // blackman je bolji od hann
-    let mut handles = vec![];
-    for i in 0..6 {
-        let h = h.clone();
-        let mut string_data = note_intensity.remove(0);
-        let window = window.clone();
-        let conv_type = args.conv_type.clone();
-
-        handles.push(thread::spawn(move || {
-            let mut out_string_data = vec![Vec::new(); 20];
-
-            for n in 0..20 {
-                let mut note_data = string_data.remove(0);
-                //FFT method
-                //za nepravilan broj padduj do 2_n
-                out_string_data[n] = fft::convolve(&note_data, &h, &window, None); // applying low pass filter
-                out_string_data[n] =
-                    post_processing::block_max_decemation(&out_string_data[n], args.decemation_len);
-            }
-
-            (i, out_string_data)
-        }));
-    }
-
-    let mut note_intensity = vec![Vec::new(); 6];
-    for handle in handles {
-        let tmp = handle.join().unwrap();
-        note_intensity[tmp.0] = tmp.1;
-    }
-
-    println!("fir filters applied");
-    /*
-    // find the max on E0 - E4, that's a sure bet
-    let mut temp = post_processing::eliminate_by_string(&note_intensity[5][0..5].to_vec());
-    for n in 0..5 {
-        note_intensity[5][n] = temp.remove(0);
-    }
-    // e15 - 20 as well
-    let mut temp = post_processing::eliminate_by_string(&note_intensity[0][15..20].to_vec());
-    for n in 15..20 {
-        note_intensity[0][n] = temp.remove(0);
-    }
-    */
     let application = gtk::Application::new(
         Some("io.github.plotters-rs.plotters-gtk-demo"),
         Default::default(),
     );
 
     application.connect_activate(move |app| {
-        build_ui(app, &note_intensity, args.sec_to_run, &all_notes);
+        build_ui(app, &note_intensity, args.sec_to_run, &args);
     });
 
     application.run_with_args(&[""]);
-}
-
-fn generate_all_notes() -> Vec<Note> {
-    let mut all_notes: Vec<Note> = Vec::new();
-    let mut counter = 0;
-    for string in STRINGS.iter().rev() {
-        for n in 0..20 {
-            let mut name_new = String::from(*string);
-            name_new.push_str(&n.to_string());
-            //println!("{name_new}");
-            all_notes.push(Note {
-                name: name_new,
-                freq: HERZ[offset_table[counter] + n].parse().unwrap(),
-                harmonics: Vec::new(),
-            });
-        }
-        counter += 1;
-    }
-
-    all_notes
-}
-
-fn generate_note_network(
-    all_notes: &mut Vec<Note>,
-    sample_notes: &Vec<Vec<Vec<i16>>>,
-    window: &Vec<f32>,
-    sample_len: usize,
-) {
-    let end = all_notes.len();
-
-    for note in 0..end {
-        //calculate fft and detect peaks
-        let midi_note = fourier::open_sample_note(&all_notes[note]);
-
-        let mut auto_conv = fft::convolve(
-            &midi_note,
-            &sample_notes[5 - note / 20][note % 20],
-            &window,
-            None,
-        );
-
-        // zero index compare
-        //let mut baseline = auto_conv[0];
-        // average compare
-        let mut baseline = auto_conv.iter().sum::<f32>();
-        // max based compare
-        //let baseline = auto_conv.iter().max_by(|a, b| a.total_cmp(b)).unwrap();
-        //for each higher harmonic convolve and save ratio
-        for h in 0..end {
-            let ratio = all_notes[h].freq / all_notes[note].freq;
-            let rounded_ratio = ratio.round();
-
-            //ako nije celobrojni umnozak, šibaj dalje
-            if (ratio - rounded_ratio).abs() > 0.03 || ratio < 1.5 {
-                continue;
-            }
-
-            //get corresponding wav sine of freq harmonic
-
-            let mut conv =
-                fft::convolve(&midi_note, &sample_notes[5 - h / 20][h % 20], &window, None);
-            // zero index compare
-            //let mut intensity = conv[0];
-            // average compare
-            let mut intensity = conv.iter().sum::<f32>();
-            // max based compare
-            //let intensity = conv.iter().max_by(|a, b| a.total_cmp(b)).unwrap();
-            /*
-            println!(
-                "ratio of relation: {}_{} is {}",
-                &all_notes[note].name,
-                &all_notes[h].name,
-                intensity / baseline
-            );
-            */
-
-            all_notes[note].harmonics.push((h, intensity / baseline));
-        }
-    }
-}
-
-fn attenuate_harmonics(
-    note_intensity: &Vec<Vec<Vec<f32>>>,
-    all_notes: &Vec<Note>,
-    factor: f32,
-    power_of_harmonics: f32,
-) -> Vec<Vec<Vec<f32>>> {
-    let mut out = note_intensity.clone();
-
-    // E A D G B e
-    for note in 0..120 {
-        for hb in all_notes[note].harmonics.iter() {
-            let wire = 5 - hb.0 / 20;
-            let tab = hb.0 % 20;
-
-            for t in 0..out[wire][tab].len() {
-                out[wire][tab][t] -=
-                    factor * out[5 - note / 20][note % 20][t] * (hb.1).pow(power_of_harmonics);
-
-                if out[wire][tab][t] < 0.0 {
-                    out[wire][tab][t] = 0.0;
-                }
-            }
-
-            println!(
-                "Attenuating {} with {} and a ratio of {}, bfr",
-                &all_notes[hb.0].name,
-                &all_notes[note].name,
-                hb.1 * factor
-            );
-        }
-    }
-
-    out
-}
-
-fn add_harmonics(
-    note_intensity: &Vec<Vec<Vec<f32>>>,
-    all_notes: &Vec<Note>,
-    factor: f32,
-    power_of_harmonics: f32,
-) -> Vec<Vec<Vec<f32>>> {
-    let mut out = note_intensity.clone();
-
-    // E A D G B e
-    for note in (0..120).rev() {
-        for hb in all_notes[note].harmonics.iter() {
-            let wire = 5 - note / 20;
-            let tab = note % 20;
-
-            for t in 0..out[wire][tab].len() {
-                out[wire][tab][t] +=
-                    factor * out[5 - hb.0 / 20][hb.0 % 20][t] * (hb.1).pow(power_of_harmonics);
-            }
-
-            println!(
-                "Attenuating {} with {} and a ratio of {}, bfr",
-                &all_notes[hb.0].name,
-                &all_notes[note].name,
-                hb.1 * factor
-            );
-        }
-    }
-
-    out
 }
 const GLADE_UI_SOURCE: &'static str = include_str!("ui.glade");
 
@@ -387,25 +110,32 @@ struct PlottingState {
     std_x: f64,
     std_y: f64,
     pitch: f64,
-    roll: f64,
+    time_frame: f64,
     note: usize,
     string: usize,
     time_res: f32,
     data_orig: Box<Vec<Vec<Vec<f32>>>>,
-    data_curr: Box<Vec<Vec<Vec<f32>>>>,
+    data_att: Box<Vec<Vec<Vec<f32>>>>,
+    data_out: Box<Vec<Vec<Vec<f32>>>>,
+    low_threshold: f64,
+    high_threshold: f64,
+    args: cli::Args,
+    time_processed: f64,
 }
 
 impl PlottingState {
-    fn plot_pdf<'a, DB: DrawingBackend + 'a>(
+    fn plot<'a, DB: DrawingBackend + 'a>(
         &self,
         backend: DB,
         data: &Vec<Vec<Vec<f32>>>,
-        time: f32,
+        data_out: &Vec<Vec<Vec<f32>>>,
     ) -> Result<(), Box<dyn Error + 'a>> {
-        let x_offset = (self.x_offset * 10.0) as usize;
+        let samples_per_sec = data[0][0].len() as f64 / self.time_processed;
+        let x_offset = (self.x_offset * samples_per_sec as f64) as usize;
+        println!("samples per sec: {}", samples_per_sec);
 
         let end_point = cmp::min(
-            x_offset + (self.roll as f32 / 20.0 * data[0][0].len() as f32) as usize,
+            x_offset + (self.time_frame / self.time_processed * data[0][0].len() as f64) as usize,
             data[0][0].len(),
         );
 
@@ -416,7 +146,7 @@ impl PlottingState {
         root.fill(&WHITE)?;
 
         let mut chart = ChartBuilder::on(&root)
-            .set_label_area_size(LabelAreaPosition::Left, 60)
+            .set_label_area_size(LabelAreaPosition::Left, 140)
             .set_label_area_size(LabelAreaPosition::Bottom, 60)
             .build_cartesian_2d(0..end_point - x_offset, 0.0..max)?;
 
@@ -426,7 +156,7 @@ impl PlottingState {
             .configure_mesh()
             .disable_x_mesh()
             .disable_y_mesh()
-            .x_label_formatter(&|x| format!("{}", ((*x + x_offset) as f32 * self.time_res) as f32))
+            .x_label_formatter(&|x| format!("{}", ((*x + x_offset) as f64 / samples_per_sec)))
             .y_labels(0)
             .draw()?;
 
@@ -437,19 +167,32 @@ impl PlottingState {
                         .zip(data[self.pitch as usize][note][x_offset..end_point].iter())
                         .map(|(x, y)| (x, *y / 20.0 * self.y_scale as f32 + note as f32 / 200.0)),
                     note as f32 / 200.0,
+                    &BLUE.mix(0.2),
+                )
+                .border_style(&BLUE),
+            )?;
+
+            chart.draw_series(
+                AreaSeries::new(
+                    (0..)
+                        .zip(data_out[self.pitch as usize][note][x_offset..end_point].iter())
+                        .map(|(x, y)| (x, *y / 20.0 * self.y_scale as f32 + note as f32 / 200.0)),
+                    note as f32 / 200.0,
                     &RED.mix(0.2),
                 )
                 .border_style(&RED),
             )?;
 
-            root.draw(&Text::new(
-                format!("{}{}", STRINGS[self.pitch as usize], note),
-                (
-                    10,
-                    ((20 - note) as i32 * root.get_pixel_range().1.end as i32 / 21) as i32,
-                ),
-                ("sans-serif", 15.0).into_font(),
-            ));
+            let mut x = 10;
+            let y = ((20 - note) as i32 * root.get_pixel_range().1.end as i32 / 21) as i32;
+
+            if y > 0 {
+                root.draw(&Text::new(
+                    misc::index_to_note(note + OFFSET_TABLE[5 - self.pitch as usize]),
+                    (x, y),
+                    ("sans-serif", 15.0).into_font(),
+                ));
+            }
         }
 
         root.present()?;
@@ -457,7 +200,12 @@ impl PlottingState {
     }
 }
 
-fn build_ui(app: &gtk::Application, data: &Vec<Vec<Vec<f32>>>, sec: f32, all_notes: &Vec<Note>) {
+fn build_ui(app: &gtk::Application, data: &Vec<Vec<Vec<f32>>>, sec: f32, args: &cli::Args) {
+    let window = fourier::calculate_window_function(args.nfft, &args.window_function); // blackman je bolji od hann
+    let sample_notes = freq_generator::open_sample_notes(args.nfft);
+    let mut all_notes = harmonics::generate_all_notes();
+    harmonics::generate_note_network(&mut all_notes, &sample_notes, &window, args.nfft);
+
     let builder = gtk::Builder::from_string(GLADE_UI_SOURCE);
     let window = builder.object::<gtk::Window>("MainWindow").unwrap();
 
@@ -465,11 +213,14 @@ fn build_ui(app: &gtk::Application, data: &Vec<Vec<Vec<f32>>>, sec: f32, all_not
 
     let drawing_area: gtk::DrawingArea = builder.object("MainDrawingArea").unwrap();
     let string_slider = builder.object::<gtk::Scale>("StringSlider").unwrap();
-    let yaw_scale = builder.object::<gtk::Scale>("YawScale").unwrap();
+    let time_frame_slider = builder.object::<gtk::Scale>("TimeFrameSlider").unwrap();
     let time_slider = builder.object::<gtk::Scale>("TimeSlider").unwrap();
     let y_scale_slider = builder.object::<gtk::Scale>("MeanYScale").unwrap();
     let std_x_scale = builder.object::<gtk::Scale>("SDXScale").unwrap();
     let std_y_scale = builder.object::<gtk::Scale>("SDYScale").unwrap();
+
+    let low_threshold_slider = builder.object::<gtk::Scale>("LowThresholdSlider").unwrap();
+    let high_threshold_slider = builder.object::<gtk::Scale>("HighThresholdSlider").unwrap();
 
     let note_default = 2;
     let string_default = 0;
@@ -480,12 +231,17 @@ fn build_ui(app: &gtk::Application, data: &Vec<Vec<Vec<f32>>>, sec: f32, all_not
         std_x: std_x_scale.value(),
         std_y: std_y_scale.value(),
         pitch: string_slider.value(),
-        roll: yaw_scale.value(),
+        time_frame: time_frame_slider.value(),
         note: note_default,
         string: string_default,
         time_res: sec / data.len() as f32,
         data_orig: Box::new(data.clone()),
-        data_curr: Box::new(data.clone()),
+        data_att: Box::new(data.clone()),
+        data_out: Box::new(data.clone()),
+        low_threshold: 0.0,
+        high_threshold: 1.0,
+        args: args.clone(),
+        time_processed: args.sec_to_run as f64,
     }));
 
     window.set_application(Some(app));
@@ -501,7 +257,9 @@ fn build_ui(app: &gtk::Application, data: &Vec<Vec<Vec<f32>>>, sec: f32, all_not
         let w = widget.allocated_width();
         let h = widget.allocated_height();
         let backend = CairoBackend::new(cr, (w as u32, h as u32)).unwrap();
-        state.plot_pdf(backend, &*state.data_curr, sec).unwrap();
+        state
+            .plot(backend, &*state.data_att, &*state.data_out)
+            .unwrap();
         Inhibit(false)
     });
 
@@ -516,26 +274,61 @@ fn build_ui(app: &gtk::Application, data: &Vec<Vec<Vec<f32>>>, sec: f32, all_not
             });
         };
 
-    let recalculate_linear_attenuation = |what: &gtk::Scale,
-                                          how: Box<
-        dyn Fn(&mut PlottingState) -> &mut Box<Vec<Vec<Vec<f32>>>> + 'static,
-    >,
-                                          factor: Box<
-        dyn Fn(&mut PlottingState) -> &mut f64 + 'static,
-    >| {
-        let app_state = app_state.clone();
-        let drawing_area = drawing_area.clone();
-        let all_notes = all_notes.clone();
-        what.connect_value_changed(move |target| {
-            let mut state = app_state.borrow_mut();
-            *factor(&mut *state) = target.value();
-            **how(&mut *state) =
-                attenuate_harmonics(&data, &all_notes, target.value() as f32, state.std_y as f32);
-            drawing_area.queue_draw();
-        });
-    };
+    let mut args = args.clone();
+    let process_more_data =
+        |what: &gtk::Scale,
+         how: Box<dyn Fn(&mut PlottingState) -> &mut f64 + 'static>,
+         data_orig: Box<dyn Fn(&mut PlottingState) -> &mut Box<Vec<Vec<Vec<f32>>>> + 'static>,
+         time_processed: Box<dyn Fn(&mut PlottingState) -> &mut f64 + 'static>| {
+            let app_state = app_state.clone();
+            let drawing_area = drawing_area.clone();
+            what.connect_value_changed(move |target| {
+                let mut state = app_state.borrow_mut();
+                *how(&mut *state) = target.value();
 
-    let recalculate_exponential_attenuation =
+                if (target.value() > state.time_processed - state.time_frame) {
+                    let mut args = state.args.clone();
+                    args.seek_offset = state.time_processed as f32;
+                    args.sec_to_run = 5.0;
+                    *time_processed(&mut *state) += args.sec_to_run as f64;
+                    let temp = process_song(&args);
+                    **data_orig(&mut *state) = weld_note_intensity(&state.data_orig, &temp);
+                }
+
+                drawing_area.queue_draw();
+            });
+        };
+
+    let recalculate_attenuation =
+        |slider: &gtk::Scale,
+         data_in: Box<dyn Fn(&mut PlottingState) -> &mut Box<Vec<Vec<Vec<f32>>>> + 'static>,
+         data_out: Box<dyn Fn(&mut PlottingState) -> &mut Box<Vec<Vec<Vec<f32>>>> + 'static>,
+         factor: Box<dyn Fn(&mut PlottingState) -> &mut f64 + 'static>| {
+            let app_state = app_state.clone();
+            let drawing_area = drawing_area.clone();
+            let all_notes = all_notes.clone();
+            slider.connect_value_changed(move |target| {
+                let mut state = app_state.borrow_mut();
+                *factor(&mut *state) = target.value();
+                let temp = harmonics::attenuate_harmonics(
+                    &state.data_orig,
+                    &all_notes,
+                    state.std_x as f32,
+                    state.std_y as f32,
+                );
+
+                **data_out(&mut *state) = post_processing::schmitt(
+                    &temp,
+                    state.high_threshold as f32,
+                    state.low_threshold as f32,
+                );
+                **data_in(&mut *state) = temp;
+
+                drawing_area.queue_draw();
+            });
+        };
+
+    let recalculate_thresholds =
         |what: &gtk::Scale,
          how: Box<dyn Fn(&mut PlottingState) -> &mut Box<Vec<Vec<Vec<f32>>>> + 'static>,
          factor: Box<dyn Fn(&mut PlottingState) -> &mut f64 + 'static>| {
@@ -545,32 +338,79 @@ fn build_ui(app: &gtk::Application, data: &Vec<Vec<Vec<f32>>>, sec: f32, all_not
             what.connect_value_changed(move |target| {
                 let mut state = app_state.borrow_mut();
                 *factor(&mut *state) = target.value();
-                **how(&mut *state) = attenuate_harmonics(
-                    &state.data_orig,
-                    &all_notes,
-                    state.std_x as f32,
-                    target.value() as f32,
+                **how(&mut *state) = post_processing::schmitt(
+                    &state.data_att,
+                    state.high_threshold as f32,
+                    state.low_threshold as f32,
                 );
-                //                data = data.clone();
+
                 drawing_area.queue_draw();
             });
         };
 
     handle_change(&string_slider, Box::new(|s| &mut s.pitch));
-    handle_change(&yaw_scale, Box::new(|s| &mut s.roll));
-    handle_change(&time_slider, Box::new(|s| &mut s.x_offset));
+    handle_change(&time_frame_slider, Box::new(|s| &mut s.time_frame));
+    process_more_data(
+        &time_slider,
+        Box::new(|s| &mut s.x_offset),
+        Box::new(|s| &mut s.data_orig),
+        Box::new(|s| &mut s.time_processed),
+    );
     handle_change(&y_scale_slider, Box::new(|s| &mut s.y_scale));
 
-    recalculate_linear_attenuation(
+    recalculate_attenuation(
         &std_x_scale,
-        Box::new(|s| &mut s.data_curr),
+        Box::new(|s| &mut s.data_att),
+        Box::new(|s| &mut s.data_out),
         Box::new(|s| &mut s.std_x),
     );
-    recalculate_exponential_attenuation(
+    recalculate_attenuation(
         &std_y_scale,
-        Box::new(|s| &mut s.data_curr),
+        Box::new(|s| &mut s.data_att),
+        Box::new(|s| &mut s.data_out),
         Box::new(|s| &mut s.std_y),
     );
 
+    recalculate_thresholds(
+        &low_threshold_slider,
+        Box::new(|s| &mut s.data_out),
+        Box::new(|s| &mut s.low_threshold),
+    );
+
+    recalculate_thresholds(
+        &high_threshold_slider,
+        Box::new(|s| &mut s.data_out),
+        Box::new(|s| &mut s.high_threshold),
+    );
+
     window.show_all();
+}
+
+fn process_song(args: &cli::Args) -> Vec<Vec<Vec<f32>>> {
+    let h = post_processing::lp_filter(args.w, args.lenght_fir);
+    let window = fourier::calculate_window_function(args.nfft, &args.window_function); // blackman je bolji od hann
+
+    let sample_notes = freq_generator::open_sample_notes(args.nfft);
+    let mut all_notes = harmonics::generate_all_notes();
+    harmonics::generate_note_network(&mut all_notes, &sample_notes, &window, args.nfft);
+
+    let song = fourier::open_song(&args.file_name, args.seek_offset, args.sec_to_run);
+    let mut note_intensity =
+        fft::threaded_interlaced_convolution(&song, &sample_notes, &window, &args);
+    post_processing::threaded_fft_fir_filtering(note_intensity, &h, &args)
+}
+
+fn weld_note_intensity(
+    first_part: &Vec<Vec<Vec<f32>>>,
+    second_part: &Vec<Vec<Vec<f32>>>,
+) -> Vec<Vec<Vec<f32>>> {
+    let mut out = first_part.clone();
+
+    for wire in 0..6 {
+        for note in 0..20 {
+            out[wire][note].extend(second_part[wire][note].to_vec());
+        }
+    }
+
+    out
 }

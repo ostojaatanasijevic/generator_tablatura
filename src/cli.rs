@@ -1,6 +1,6 @@
 use clap::Parser;
 
-#[derive(Parser, Debug)]
+#[derive(Parser, Debug, Clone)]
 #[command(author, version, about, long_about = None)]
 ///Generator tablatura
 pub struct Args {
@@ -51,4 +51,8 @@ pub struct Args {
     #[arg(short, long, default_value_t = 0.0)]
     ///Max plot value
     pub max_plot_value: f32,
+
+    #[arg(short, long, default_value_t = 0.0)]
+    ///Seek_offset_in_seconds
+    pub seek_offset: f32,
 }

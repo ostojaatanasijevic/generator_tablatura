@@ -1,5 +1,6 @@
 #![allow(warnings, unused)]
 
+use crate::harmonics::Note;
 use fast_float::parse;
 use plotters::prelude::*;
 use rayon::prelude::*;
@@ -12,12 +13,11 @@ use std::io::Write;
 use std::path::Path;
 use std::thread;
 
-use crate::offset_table;
 use crate::post_processing::block_average_decemation;
 use crate::post_processing::block_max_decemation;
-use crate::Note;
 use crate::AVG_LEN;
 use crate::HERZ;
+use crate::OFFSET_TABLE;
 use crate::STRINGS;
 use crate::THREADS;
 
@@ -108,8 +108,9 @@ pub fn calculate_window_function(n: usize, wt: &str) -> Vec<f32> {
     out
 }
 
-pub fn open_song(filename: &str, seconds: f32) -> Vec<i16> {
+pub fn open_song(filename: &str, seek: f32, seconds: f32) -> Vec<i16> {
     let song_samples = (seconds * 44100.0) as usize;
+    let seek_samples = (seek * 44100.0) as usize;
 
     let mut file =
         File::open(Path::new(filename)).expect(&format!("Can't open file named {filename}"));
@@ -117,7 +118,8 @@ pub fn open_song(filename: &str, seconds: f32) -> Vec<i16> {
         wav::read(&mut file).expect(&format!("Can't read file named {filename}, im retarded"));
     let data = raw_data
         .as_sixteen()
-        .expect(&format!("Wav file : {filename} isn't 16 bit!"))[0..song_samples]
+        .expect(&format!("Wav file : {filename} isn't 16 bit!"))
+        [seek_samples..song_samples + seek_samples]
         .to_vec();
 
     println!("song loaded!");
@@ -150,7 +152,7 @@ pub fn open_sample_notes(sample_len: usize) -> Vec<Vec<Vec<i16>>> {
 
             let filename = format!(
                 "pure_sine_samples/audiocheck.net_sin_{}Hz_-3dBFS_3s.wav",
-                HERZ[offset_table[5 - string] + note]
+                HERZ[OFFSET_TABLE[5 - string] + note]
             );
 
             let mut file = File::open(Path::new(&filename))

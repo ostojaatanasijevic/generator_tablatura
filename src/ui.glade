@@ -15,6 +15,8 @@
     <property name="step-increment">1</property>
     <property name="page-increment">10</property>
   </object>
+
+  <!-- Žica gitara -->
   <object class="GtkAdjustment" id="Pitch">
     <property name="lower">0</property>
     <property name="upper">5</property>
@@ -34,12 +36,33 @@
     <property name="step-increment">1</property>
     <property name="page-increment">10</property>
   </object>
-  <object class="GtkAdjustment" id="Yaw">
+  <object class="GtkAdjustment" id="TimeFrameAdjustment">
     <property name="upper">20</property>
-    <property name="value">1</property>
+    <property name="value">5</property>
     <property name="step-increment">0.01</property>
     <property name="page-increment">10</property>
   </object>
+
+  <!-- high threshold -->
+  <object class="GtkAdjustment" id="HighThresholdAdjustment">
+    <property name="lower">0</property>
+    <property name="upper">0.1</property>
+    <property name="value">0.01</property>
+    <property name="step-increment">0.001</property>
+    <property name="page-increment">1</property>
+  </object>
+
+  <!-- low threshold -->
+  <object class="GtkAdjustment" id="LowThresholdAdjustment">
+    <property name="lower">0</property>
+    <property name="upper">0.1</property>
+    <property name="value">0.005</property>
+    <property name="step-increment">0.001</property>
+    <property name="page-increment">1</property>
+  </object>
+
+
+
   <object class="GtkWindow" id="MainWindow">
     <property name="can-focus">False</property>
     <child>
@@ -53,6 +76,7 @@
             <property name="visible">True</property>
             <property name="can-focus">False</property>
             <property name="column-homogeneous">True</property>
+            
             <child>
               <object class="GtkLabel">
                 <property name="visible">True</property>
@@ -191,10 +215,10 @@
               </packing>
             </child>
             <child>
-              <object class="GtkScale" id="YawScale">
+              <object class="GtkScale" id="TimeFrameSlider">
                 <property name="visible">True</property>
                 <property name="can-focus">True</property>
-                <property name="adjustment">Yaw</property>
+                <property name="adjustment">TimeFrameAdjustment</property>
                 <property name="round-digits">1</property>
                 <property name="digits">4</property>
                 <property name="value-pos">left</property>
@@ -204,6 +228,63 @@
                 <property name="top-attach">2</property>
               </packing>
             </child>
+  
+            <!-- Label za high threshold-->
+            <child>
+              <object class="GtkLabel">
+                <property name="visible">True</property>
+                <property name="can-focus">False</property>
+                <property name="label" translatable="yes"> High threshold </property>
+              </object>
+              <packing>
+                <property name="left-attach">0</property>
+                <property name="top-attach">3</property>
+              </packing>
+            </child>
+            <child>
+              <object class="GtkScale" id="HighThresholdSlider">
+                <property name="visible">True</property>
+                <property name="can-focus">True</property>
+                <property name="adjustment">HighThresholdAdjustment</property>
+                <property name="round-digits">1</property>
+                <property name="digits">4</property>
+                <property name="value-pos">left</property>
+              </object>
+              <packing>
+                <property name="left-attach">1</property>
+                <property name="top-attach">3</property>
+              </packing>
+            </child>
+ 
+            <!-- Label za low threshold-->
+            <child>
+              <object class="GtkLabel">
+                <property name="visible">True</property>
+                <property name="can-focus">False</property>
+                <property name="label" translatable="yes"> Low threshold </property>
+              </object>
+              <packing>
+                <property name="left-attach">2</property>
+                <property name="top-attach">3</property>
+              </packing>
+            </child>
+            <child>
+              <object class="GtkScale" id="LowThresholdSlider">
+                <property name="visible">True</property>
+                <property name="can-focus">True</property>
+                <property name="adjustment">LowThresholdAdjustment</property>
+                <property name="round-digits">1</property>
+                <property name="digits">4</property>
+                <property name="value-pos">left</property>
+              </object>
+              <packing>
+                <property name="left-attach">3</property>
+                <property name="top-attach">3</property>
+              </packing>
+            </child>
+
+
+
           </object>
           <packing>
             <property name="expand">False</property>

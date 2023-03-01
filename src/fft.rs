@@ -1,3 +1,4 @@
+use crate::harmonics::Note;
 use fast_float::parse;
 use plotters::prelude::*;
 use rayon::prelude::*;
@@ -11,19 +12,93 @@ use std::io::Write;
 use std::path::Path;
 use std::thread;
 
+use crate::cli::Args;
 use crate::fourier::unsinkable;
-use crate::offset_table;
 use crate::post_processing::block_average_decemation;
 use crate::post_processing::block_max_decemation;
 use crate::post_processing::fir_filter;
-use crate::Note;
 use crate::AVG_LEN;
 use crate::HERZ;
+use crate::OFFSET_TABLE;
 use crate::STRINGS;
 use crate::THREADS;
 
 const BROJ_ZICA: usize = 6;
 const BROJ_PRAGOVA: usize = 20;
+
+pub fn threaded_interlaced_convolution(
+    song: &Vec<i16>,
+    sample_notes: &Vec<Vec<Vec<i16>>>,
+    window: &Vec<f32>,
+    args: &Args,
+) -> Vec<Vec<Vec<f32>>> {
+    let mut note_intensity = Vec::new();
+    let mut handles = vec![];
+    for i in 0..6 {
+        let song = song.clone();
+        let sample_notes = sample_notes[i].clone();
+        let window = window.clone();
+        let conv_type = args.conv_type.clone();
+
+        handles.push(thread::spawn(move || {
+            let mut notes_on_string = vec![Vec::new(); 20];
+            for n in 0..(crate::DIFF_TABLE[i]) {
+                notes_on_string[n] =
+                    interlaced_convolution(&song, &sample_notes[n], &window, None, 512);
+            }
+
+            notes_on_string
+        }));
+    }
+
+    let mut joined_data: Vec<f32> = Vec::new();
+    for handle in handles {
+        let tmp = handle.join().unwrap();
+        note_intensity.push(tmp);
+    }
+
+    for wire in 1..6 {
+        for i in 0..20 - crate::DIFF_TABLE[wire] {
+            note_intensity[wire][i + crate::DIFF_TABLE[wire]] = note_intensity[wire - 1][i].clone();
+        }
+    }
+
+    note_intensity
+}
+
+pub fn redundant_threaded_interlaced_convolution(
+    song: &Vec<i16>,
+    sample_notes: &Vec<Vec<Vec<i16>>>,
+    window: &Vec<f32>,
+    args: &Args,
+) -> Vec<Vec<Vec<f32>>> {
+    let mut note_intensity = Vec::new();
+    let mut handles = vec![];
+    for i in 0..6 {
+        let song = song.clone();
+        let sample_notes = sample_notes[i].clone();
+        let window = window.clone();
+        let conv_type = args.conv_type.clone();
+
+        handles.push(thread::spawn(move || {
+            let mut notes_on_string = vec![Vec::new(); 20];
+            for n in 0..20 {
+                notes_on_string[n] =
+                    interlaced_convolution(&song, &sample_notes[n], &window, None, 512);
+            }
+
+            notes_on_string
+        }));
+    }
+
+    let mut joined_data: Vec<f32> = Vec::new();
+    for handle in handles {
+        let tmp = handle.join().unwrap();
+        note_intensity.push(tmp);
+    }
+
+    note_intensity
+}
 
 pub fn convolve<T: unsinkable, U: unsinkable>(
     input_large: &Vec<T>,
