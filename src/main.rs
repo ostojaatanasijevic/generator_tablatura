@@ -97,12 +97,10 @@ struct PlottingState {
     std_y: f64,
     pitch: f64,
     time_frame: f64,
-    note: usize,
-    string: usize,
     time_res: f32,
-    data_orig: Box<Vec<Vec<Vec<f32>>>>,
-    data_att: Box<Vec<Vec<Vec<f32>>>>,
-    data_out: Box<Vec<Vec<Vec<f32>>>>,
+    data_orig: Vec<Vec<Vec<f32>>>,
+    data_att: Vec<Vec<Vec<f32>>>,
+    data_out: Vec<Vec<Vec<f32>>>,
     low_threshold: f64,
     high_threshold: f64,
     args: cli::Args,
@@ -210,9 +208,6 @@ fn build_ui(app: &gtk::Application, data: &Vec<Vec<Vec<f32>>>, sec: f32, args: &
     let low_threshold_slider = builder.object::<gtk::Scale>("LowThresholdSlider").unwrap();
     let high_threshold_slider = builder.object::<gtk::Scale>("HighThresholdSlider").unwrap();
 
-    let note_default = 2;
-    let string_default = 0;
-
     let app_state = Rc::new(RefCell::new(PlottingState {
         x_offset: time_slider.value(),
         y_scale: y_scale_slider.value(),
@@ -220,12 +215,10 @@ fn build_ui(app: &gtk::Application, data: &Vec<Vec<Vec<f32>>>, sec: f32, args: &
         std_y: std_y_scale.value(),
         pitch: string_slider.value(),
         time_frame: time_frame_slider.value(),
-        note: note_default,
-        string: string_default,
         time_res: sec / data.len() as f32,
-        data_orig: Box::new(data.clone()),
-        data_att: Box::new(data.clone()),
-        data_out: Box::new(data.clone()),
+        data_orig: data.clone(),
+        data_att: data.clone(),
+        data_out: data.clone(),
         low_threshold: 0.0,
         high_threshold: 1.0,
         args: args.clone(),
@@ -235,15 +228,14 @@ fn build_ui(app: &gtk::Application, data: &Vec<Vec<Vec<f32>>>, sec: f32, args: &
     window.set_application(Some(app));
 
     let state_cloned = app_state.clone();
-    let mut data = data.clone();
-    let mut data_att = data.clone();
+
     drawing_area.connect_draw(move |widget, cr| {
         let state = state_cloned.borrow().clone();
         let w = widget.allocated_width();
         let h = widget.allocated_height();
         let backend = CairoBackend::new(cr, (w as u32, h as u32)).unwrap();
         state
-            .plot(backend, &*state.data_att, &*state.data_out)
+            .plot(backend, &state.data_att, &state.data_out)
             .unwrap();
         Inhibit(false)
     });
@@ -258,18 +250,17 @@ fn build_ui(app: &gtk::Application, data: &Vec<Vec<Vec<f32>>>, sec: f32, args: &
                 drawing_area.queue_draw();
             });
         };
-
-    let mut args = args.clone();
+    /*
     let process_more_data =
-        |what: &gtk::Scale,
-         how: Box<dyn Fn(&mut PlottingState) -> &mut f64 + 'static>,
-         data_orig: Box<dyn Fn(&mut PlottingState) -> &mut Box<Vec<Vec<Vec<f32>>>> + 'static>,
+        |slider: &gtk::Scale,
+         time: Box<dyn Fn(&mut PlottingState) -> &mut f64 + 'static>,
+         data_orig: Box<dyn Fn(&mut PlottingState) -> &mut Vec<Vec<Vec<f32>>> + 'static>,
          time_processed: Box<dyn Fn(&mut PlottingState) -> &mut f64 + 'static>| {
             let app_state = app_state.clone();
             let drawing_area = drawing_area.clone();
-            what.connect_value_changed(move |target| {
+            slider.connect_value_changed(move |target| {
                 let mut state = app_state.borrow_mut();
-                *how(&mut *state) = target.value();
+                *time(&mut *state) = target.value();
 
                 if (target.value() > state.time_processed - state.time_frame) {
                     let mut args = state.args.clone();
@@ -277,17 +268,46 @@ fn build_ui(app: &gtk::Application, data: &Vec<Vec<Vec<f32>>>, sec: f32, args: &
                     args.sec_to_run = 5.0;
                     *time_processed(&mut *state) += args.sec_to_run as f64;
                     let temp = process_song(&args);
-                    **data_orig(&mut *state) = weld_note_intensity(&state.data_orig, &temp);
+                    *data_orig(&mut *state) = weld_note_intensity(&state.data_orig, &temp);
                 }
 
                 drawing_area.queue_draw();
             });
         };
+    process_more_data(
+        &time_slider,
+        Box::new(|s| &mut s.x_offset),
+        Box::new(|s| &mut s.data_orig),
+        Box::new(|s| &mut s.time_processed),
+    );
+    */
+
+    let process_more_data_exp = |slider: &gtk::Scale,
+                                 ploting_state: Box<
+        dyn Fn(&mut PlottingState) -> &mut PlottingState + 'static,
+    >| {
+        let app_state = app_state.clone();
+        let drawing_area = drawing_area.clone();
+        slider.connect_value_changed(move |target| {
+            let mut state = app_state.borrow_mut();
+            ploting_state(&mut *state).x_offset = target.value();
+
+            if (target.value() > state.time_processed - state.time_frame) {
+                let mut args = state.args.clone();
+                args.seek_offset = state.time_processed as f32;
+                args.sec_to_run = 5.0;
+                ploting_state(&mut *state).time_processed += args.sec_to_run as f64;
+                let temp = process_song(&args);
+                ploting_state(&mut *state).data_orig = weld_note_intensity(&state.data_orig, &temp);
+            }
+
+            drawing_area.queue_draw();
+        });
+    };
 
     let recalculate_attenuation =
         |slider: &gtk::Scale,
-         data_in: Box<dyn Fn(&mut PlottingState) -> &mut Box<Vec<Vec<Vec<f32>>>> + 'static>,
-         data_out: Box<dyn Fn(&mut PlottingState) -> &mut Box<Vec<Vec<Vec<f32>>>> + 'static>,
+         ploting_state: Box<dyn Fn(&mut PlottingState) -> &mut PlottingState + 'static>,
          factor: Box<dyn Fn(&mut PlottingState) -> &mut f64 + 'static>| {
             let app_state = app_state.clone();
             let drawing_area = drawing_area.clone();
@@ -302,12 +322,12 @@ fn build_ui(app: &gtk::Application, data: &Vec<Vec<Vec<f32>>>, sec: f32, args: &
                     state.std_y as f32,
                 );
 
-                **data_out(&mut *state) = post_processing::schmitt(
+                ploting_state(&mut *state).data_out = post_processing::schmitt(
                     &temp,
                     state.high_threshold as f32,
                     state.low_threshold as f32,
                 );
-                **data_in(&mut *state) = temp;
+                ploting_state(&mut *state).data_att = temp;
 
                 drawing_area.queue_draw();
             });
@@ -315,15 +335,16 @@ fn build_ui(app: &gtk::Application, data: &Vec<Vec<Vec<f32>>>, sec: f32, args: &
 
     let recalculate_thresholds =
         |what: &gtk::Scale,
-         how: Box<dyn Fn(&mut PlottingState) -> &mut Box<Vec<Vec<Vec<f32>>>> + 'static>,
+         how: Box<dyn Fn(&mut PlottingState) -> &mut Vec<Vec<Vec<f32>>> + 'static>,
          factor: Box<dyn Fn(&mut PlottingState) -> &mut f64 + 'static>| {
             let app_state = app_state.clone();
             let drawing_area = drawing_area.clone();
+
             let all_notes = all_notes.clone();
             what.connect_value_changed(move |target| {
                 let mut state = app_state.borrow_mut();
                 *factor(&mut *state) = target.value();
-                **how(&mut *state) = post_processing::schmitt(
+                *how(&mut *state) = post_processing::schmitt(
                     &state.data_att,
                     state.high_threshold as f32,
                     state.low_threshold as f32,
@@ -335,26 +356,12 @@ fn build_ui(app: &gtk::Application, data: &Vec<Vec<Vec<f32>>>, sec: f32, args: &
 
     handle_change(&string_slider, Box::new(|s| &mut s.pitch));
     handle_change(&time_frame_slider, Box::new(|s| &mut s.time_frame));
-    process_more_data(
-        &time_slider,
-        Box::new(|s| &mut s.x_offset),
-        Box::new(|s| &mut s.data_orig),
-        Box::new(|s| &mut s.time_processed),
-    );
+
+    process_more_data_exp(&time_slider, Box::new(|s| s));
     handle_change(&y_scale_slider, Box::new(|s| &mut s.y_scale));
 
-    recalculate_attenuation(
-        &std_x_scale,
-        Box::new(|s| &mut s.data_att),
-        Box::new(|s| &mut s.data_out),
-        Box::new(|s| &mut s.std_x),
-    );
-    recalculate_attenuation(
-        &std_y_scale,
-        Box::new(|s| &mut s.data_att),
-        Box::new(|s| &mut s.data_out),
-        Box::new(|s| &mut s.std_y),
-    );
+    recalculate_attenuation(&std_x_scale, Box::new(|s| s), Box::new(|s| &mut s.std_x));
+    recalculate_attenuation(&std_y_scale, Box::new(|s| s), Box::new(|s| &mut s.std_y));
 
     recalculate_thresholds(
         &low_threshold_slider,
