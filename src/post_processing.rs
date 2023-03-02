@@ -2,6 +2,7 @@ use fast_float::parse;
 use rayon::prelude::*;
 use rustfft::{num_complex::Complex, FftPlanner};
 use std::error::Error;
+use std::f32::consts::PI;
 use std::io::IoSlice;
 use std::io::Write;
 use std::path::Path;
@@ -14,12 +15,6 @@ use crate::fourier::calculate_window_function;
 use crate::AVG_LEN;
 use crate::THREADS;
 use crate::T_RES;
-
-use crate::NotePeak;
-use crate::NotesToIndex;
-use crate::Peaks;
-
-pub const PI: f32 = 3.14159265359;
 
 pub fn threaded_fft_fir_filtering(
     note_intensity: Vec<Vec<Vec<f32>>>,
@@ -310,6 +305,13 @@ pub fn block_max_decemation(data: &Vec<f32>, avg_len: usize) -> Vec<f32> {
     }
 
     out
+}
+
+#[derive(Debug)]
+pub struct NotePeak {
+    pub time: f32,
+    pub ampl: f32,
+    pub index: usize,
 }
 
 pub fn find_peaks(data: &Vec<f32>, threshold: f32) -> Vec<NotePeak> {

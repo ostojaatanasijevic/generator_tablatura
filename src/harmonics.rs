@@ -7,6 +7,7 @@ pub struct Note {
     pub name: String,
     pub freq: f32,
     pub harmonics: Vec<(usize, f32)>,
+    pub komsije: Vec<(usize, f32)>,
 }
 
 pub fn generate_all_notes() -> Vec<Note> {
@@ -21,6 +22,7 @@ pub fn generate_all_notes() -> Vec<Note> {
                 name: name_new,
                 freq: HERZ[OFFSET_TABLE[counter] + n].parse().unwrap(),
                 harmonics: Vec::new(),
+                komsije: Vec::new(),
             });
         }
         counter += 1;
@@ -39,7 +41,7 @@ pub fn generate_note_network(
 
     for note in 0..end {
         //calculate fft and detect peaks
-        let midi_note = crate::fourier::open_sample_note(&all_notes[note]);
+        let midi_note = crate::fourier::open_midi_note(&all_notes[note]);
 
         let mut auto_conv = crate::fft::convolve(
             &midi_note,
@@ -51,7 +53,7 @@ pub fn generate_note_network(
         // zero index compare
         //let mut baseline = auto_conv[0];
         // average compare
-        let mut baseline = auto_conv.iter().sum::<f32>();
+        let mut baseline = auto_conv.iter().map(|x| x.abs()).sum::<f32>();
         // max based compare
         //let baseline = auto_conv.iter().max_by(|a, b| a.total_cmp(b)).unwrap();
         //for each higher harmonic convolve and save ratio
@@ -71,7 +73,7 @@ pub fn generate_note_network(
             // zero index compare
             //let mut intensity = conv[0];
             // average compare
-            let mut intensity = conv.iter().sum::<f32>();
+            let mut intensity = conv.iter().map(|x| x.abs()).sum::<f32>();
             // max based compare
             //let intensity = conv.iter().max_by(|a, b| a.total_cmp(b)).unwrap();
             /*
@@ -86,6 +88,101 @@ pub fn generate_note_network(
             all_notes[note].harmonics.push((h, intensity / baseline));
         }
     }
+}
+
+pub fn cross_polinate(
+    all_notes: &mut Vec<Note>,
+    sample_notes: &Vec<Vec<Vec<i16>>>,
+    window: &Vec<f32>,
+    sample_len: usize,
+) {
+    let end = all_notes.len();
+
+    for note in 0..end {
+        let mut auto_conv = crate::fft::convolve(
+            &sample_notes[5 - note / 20][note % 20],
+            &sample_notes[5 - note / 20][note % 20],
+            &window,
+            None,
+        );
+
+        // zero index compare
+        //let mut baseline = auto_conv[0];
+        // average compare
+        let mut baseline = auto_conv.iter().map(|x| x.abs()).sum::<f32>();
+        // max based compare
+        //let baseline = auto_conv.iter().max_by(|a, b| a.total_cmp(b)).unwrap();
+        //for each higher harmonic convolve and save ratio
+        for h in 0..end {
+            if all_notes[h].freq == all_notes[note].freq {
+                continue;
+            }
+            let mut diff = all_notes[note].freq - all_notes[h].freq;
+            diff = diff.abs();
+            if diff > 30.0 {
+                continue;
+            }
+
+            let mut conv = crate::fft::convolve(
+                &sample_notes[5 - note / 20][note % 20],
+                &sample_notes[5 - h / 20][h % 20],
+                &window,
+                None,
+            );
+            // zero index compare
+            //let mut intensity = conv[0];
+            // average compare
+            let mut intensity = conv.iter().map(|x| x.abs()).sum::<f32>();
+            // max based compare
+            //let intensity = conv.iter().max_by(|a, b| a.total_cmp(b)).unwrap();
+
+            println!(
+                "ratio of relation: {}_{} is {}",
+                &all_notes[note].name,
+                &all_notes[h].name,
+                intensity / baseline
+            );
+
+            all_notes[note].komsije.push((h, intensity / baseline));
+        }
+    }
+}
+
+pub fn attenuate_neighbours(
+    note_intensity: &Vec<Vec<Vec<f32>>>,
+    all_notes: &Vec<Note>,
+    factor: f32,
+    power_of_harmonics: f32,
+) -> Vec<Vec<Vec<f32>>> {
+    let mut out = note_intensity.clone();
+    println!("atting");
+
+    // E A D G B e
+    for note in 0..120 {
+        println!("ima: {}", all_notes[note].komsije.len());
+        for hb in all_notes[note].komsije.iter() {
+            let wire = 5 - hb.0 / 20;
+            let tab = hb.0 % 20;
+
+            for t in 0..out[wire][tab].len() {
+                out[wire][tab][t] -=
+                    factor * out[5 - note / 20][note % 20][t] * (hb.1).powf(power_of_harmonics);
+
+                if out[wire][tab][t] < 0.0 {
+                    out[wire][tab][t] = 0.0;
+                }
+            }
+
+            println!(
+                "Attenuating attenuate_neighbours {} with {} and a ratio of {}, bfr",
+                &all_notes[hb.0].name,
+                &all_notes[note].name,
+                hb.1 * factor
+            );
+        }
+    }
+
+    out
 }
 
 pub fn attenuate_harmonics(

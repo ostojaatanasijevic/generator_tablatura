@@ -28,7 +28,6 @@ use num::complex::ComplexFloat;
 use num::traits::Pow;
 use num::FromPrimitive;
 use rayon::vec;
-use rustfft::{num_complex::Complex, FftPlanner};
 use std::cmp;
 use std::env;
 use std::error::Error;
@@ -41,22 +40,10 @@ use std::sync::mpsc;
 use std::thread;
 use std::time::Instant;
 
-pub struct NotesToIndex {
-    note: i32,
-    index: i32,
-}
+use realfft::RealFftPlanner;
+use rustfft::{num_complex::Complex, FftPlanner};
 
-pub struct Peaks {
-    freq: f32,
-    ampl: f32,
-}
-
-#[derive(Debug)]
-pub struct NotePeak {
-    pub time: f32,
-    pub ampl: f32,
-    pub index: usize,
-}
+use crate::harmonics::attenuate_neighbours;
 
 pub const THREADS: usize = 8;
 pub const AVG_LEN: usize = 1; // sample_len / 32; // mora da može da deli NFFT, da ne bi cureli podaci
@@ -77,7 +64,6 @@ const DIFF_TABLE: [usize; 6] = [20, 5, 4, 5, 5, 5];
 //ADD THREAD DETECTION FOR INDIVIDUAL CPUs
 fn main() {
     let args = cli::Args::parse();
-
     let (tx, rx): (mpsc::Sender<i32>, mpsc::Receiver<i32>) = mpsc::channel();
 
     let th = thread::spawn(move || {
@@ -132,7 +118,6 @@ impl PlottingState {
     ) -> Result<(), Box<dyn Error + 'a>> {
         let samples_per_sec = data[0][0].len() as f64 / self.time_processed;
         let x_offset = (self.x_offset * samples_per_sec as f64) as usize;
-        println!("samples per sec: {}", samples_per_sec);
 
         let end_point = cmp::min(
             x_offset + (self.time_frame / self.time_processed * data[0][0].len() as f64) as usize,
@@ -150,7 +135,7 @@ impl PlottingState {
             .set_label_area_size(LabelAreaPosition::Bottom, 60)
             .build_cartesian_2d(0..end_point - x_offset, 0.0..max)?;
 
-        println!("{}:{}:{}", x_offset, end_point, end_point - x_offset);
+        println!("Reploting");
 
         chart
             .configure_mesh()
@@ -205,6 +190,9 @@ fn build_ui(app: &gtk::Application, data: &Vec<Vec<Vec<f32>>>, sec: f32, args: &
     let sample_notes = freq_generator::open_sample_notes(args.nfft);
     let mut all_notes = harmonics::generate_all_notes();
     harmonics::generate_note_network(&mut all_notes, &sample_notes, &window, args.nfft);
+    harmonics::cross_polinate(&mut all_notes, &sample_notes, &window, args.nfft);
+
+    print!("{:?}", &all_notes[0]);
 
     let builder = gtk::Builder::from_string(GLADE_UI_SOURCE);
     let window = builder.object::<gtk::Window>("MainWindow").unwrap();
@@ -245,9 +233,6 @@ fn build_ui(app: &gtk::Application, data: &Vec<Vec<Vec<f32>>>, sec: f32, args: &
     }));
 
     window.set_application(Some(app));
-
-    // detect std_x
-    let mut out = std_x_scale.connect_value_changed(move |target| println!("change"));
 
     let state_cloned = app_state.clone();
     let mut data = data.clone();
@@ -387,17 +372,21 @@ fn build_ui(app: &gtk::Application, data: &Vec<Vec<Vec<f32>>>, sec: f32, args: &
 }
 
 fn process_song(args: &cli::Args) -> Vec<Vec<Vec<f32>>> {
+    println!("Processing...");
+
     let h = post_processing::lp_filter(args.w, args.lenght_fir);
     let window = fourier::calculate_window_function(args.nfft, &args.window_function); // blackman je bolji od hann
 
     let sample_notes = freq_generator::open_sample_notes(args.nfft);
     let mut all_notes = harmonics::generate_all_notes();
     harmonics::generate_note_network(&mut all_notes, &sample_notes, &window, args.nfft);
+    harmonics::cross_polinate(&mut all_notes, &sample_notes, &window, args.nfft);
 
     let song = fourier::open_song(&args.file_name, args.seek_offset, args.sec_to_run);
     let mut note_intensity =
-        fft::threaded_interlaced_convolution(&song, &sample_notes, &window, &args);
-    post_processing::threaded_fft_fir_filtering(note_intensity, &h, &args)
+        fft::threaded_interlaced_convolution_realfft(&song, &sample_notes, &window, &args);
+    let mut note_intensity = post_processing::threaded_fft_fir_filtering(note_intensity, &h, &args);
+    attenuate_neighbours(&note_intensity, &all_notes, 0.75, 1.0)
 }
 
 fn weld_note_intensity(

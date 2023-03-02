@@ -39,10 +39,6 @@ impl unsinkable for f32 {
     }
 }
 
-fn num_to_float<T: unsinkable>(input: T) -> f32 {
-    input.to_float()
-}
-
 pub fn average(data: &Vec<f32>) -> f32 {
     let mut out = 0.0;
     for bit in data {
@@ -57,7 +53,7 @@ pub fn calculate_sample_note(
     nfft: usize,
     padd: usize,
 ) -> Vec<Complex<f32>> {
-    let data = open_sample_note(&note);
+    let data = open_midi_note(&note);
 
     let mut planner = FftPlanner::<f32>::new();
     let fft = planner.plan_fft_forward(nfft + padd);
@@ -118,15 +114,17 @@ pub fn open_song(filename: &str, seek: f32, seconds: f32) -> Vec<i16> {
         wav::read(&mut file).expect(&format!("Can't read file named {filename}, im retarded"));
     let data = raw_data
         .as_sixteen()
-        .expect(&format!("Wav file : {filename} isn't 16 bit!"))
-        [seek_samples..song_samples + seek_samples]
-        .to_vec();
+        .expect(&format!("Wav file : {filename} isn't 16 bit!"));
+
+    let end_sample = std::cmp::min(seek_samples + song_samples, data.len());
+    let seek_samples = std::cmp::min(seek_samples, data.len());
+    let data = data[seek_samples..end_sample].to_vec();
 
     println!("song loaded!");
     data
 }
 
-pub fn open_sample_note(note: &Note) -> Vec<i16> {
+pub fn open_midi_note(note: &Note) -> Vec<i16> {
     let filename = format!("midi/{}/{}.wav", &note.name[0..1], &note.name);
 
     let mut file =

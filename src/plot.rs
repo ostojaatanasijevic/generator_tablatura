@@ -13,10 +13,6 @@ use crate::STRINGS;
 use crate::THREADS;
 use crate::T_RES;
 
-use crate::NotePeak;
-use crate::NotesToIndex;
-use crate::Peaks;
-
 pub fn single_plot_data_norm(data: Vec<f32>) {
     draw_plot("plots/plot0.png", data.to_vec(), T_RES as f32, 1, 0.0).unwrap();
 }
