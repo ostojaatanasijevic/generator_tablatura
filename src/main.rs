@@ -104,12 +104,17 @@ impl PlottingState {
         data: &Vec<Vec<Vec<f32>>>,
         data_out: &Vec<Vec<Vec<f32>>>,
     ) -> Result<(), Box<dyn Error + 'a>> {
+        println!(
+            "redraw len is {} and time processed is {}",
+            data[0][0].len(),
+            self.time_processed
+        );
+
         let samples_per_sec = data[0][0].len() as f64 / self.time_processed;
         let time_offset = (self.time_offset * samples_per_sec as f64) as usize;
 
         let end_point = cmp::min(
-            time_offset
-                + (self.time_frame / self.time_processed * data[0][0].len() as f64) as usize,
+            time_offset + (self.time_frame * samples_per_sec) as usize,
             data[0][0].len(),
         );
 
@@ -264,8 +269,18 @@ fn build_ui(app: &gtk::Application, args: &cli::Args) {
         slider.connect_value_changed(move |target| {
             let mut state = app_state.borrow_mut();
             ploting_state(&mut *state).time_offset = target.value();
-
+            println!(
+                "Time offset is was {} {}",
+                state.time_offset,
+                target.value()
+            );
+            println!(
+                "Time processd is was {} {}",
+                state.time_processed,
+                target.value()
+            );
             if (target.value() > state.time_processed - state.time_frame) {
+                println!("len is : {}", state.data_orig[0][0].len());
                 let now = Instant::now();
                 let mut args = state.args.clone();
                 args.seek_offset = state.time_processed as f32;
@@ -280,6 +295,20 @@ fn build_ui(app: &gtk::Application, args: &cli::Args) {
                     &sample_notes,
                 );
                 ploting_state(&mut *state).data_orig = weld_note_intensity(&state.data_orig, &temp);
+
+                let temp = harmonics::attenuate_harmonics(
+                    &state.data_orig,
+                    &state.all_notes,
+                    state.attenuation_factor as f32,
+                    state.attenuation_power_factor as f32,
+                );
+
+                ploting_state(&mut *state).data_out = post_processing::schmitt(
+                    &temp,
+                    state.high_threshold as f32,
+                    state.low_threshold as f32,
+                );
+                ploting_state(&mut *state).data_att = temp;
 
                 println!("Processing took {} seconds", now.elapsed().as_secs_f32());
             }
@@ -416,6 +445,5 @@ fn fetch_song(song: &Vec<i16>, seek: f32, seconds: f32) -> Vec<i16> {
 
     let end_sample = std::cmp::min(seek_samples + song_samples, song.len());
     let seek_samples = std::cmp::min(seek_samples, song.len());
-    let data = song[seek_samples..end_sample].to_vec();
-    data
+    song[seek_samples..end_sample].to_vec()
 }

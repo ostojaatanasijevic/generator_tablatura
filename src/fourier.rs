@@ -110,11 +110,17 @@ pub fn open_song(filename: &str, seek: f32, seconds: f32) -> Vec<i16> {
 
     let mut file =
         File::open(Path::new(filename)).expect(&format!("Can't open file named {filename}"));
-    let (_, raw_data) =
+    let (header, raw_data) =
         wav::read(&mut file).expect(&format!("Can't read file named {filename}, im retarded"));
-    let data = raw_data
+    let mut data = raw_data
         .as_sixteen()
-        .expect(&format!("Wav file : {filename} isn't 16 bit!"));
+        .expect(&format!("Wav file : {filename} isn't 16 bit!"))
+        .to_vec();
+
+    if header.channel_count == 2 {
+        eprintln!("Pazi, ovo je dvo kanalni wav fajl");
+        data = data.iter().skip(1).step_by(2).copied().collect();
+    }
 
     let end_sample = std::cmp::min(seek_samples + song_samples, data.len());
     let seek_samples = std::cmp::min(seek_samples, data.len());
