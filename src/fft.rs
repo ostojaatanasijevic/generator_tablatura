@@ -263,12 +263,12 @@ pub fn interlaced_convolution_realfft<T: unsinkable, U: unsinkable>(
         let mut s_buffer: Vec<Complex<f32>> = pesma_fft
             .iter()
             .zip(h.iter())
-            .map(|(x, y)| x * y.conj())
+            .map(|(x, y)| x * y.conj() / 10000000.0)
             .collect();
 
         let mut current = vec![0.0; nfft];
         ifft.process(&mut s_buffer, &mut current);
-        out.extend(current);
+        out.extend(block_max_decemation(&current, current.len()));
     }
     out
 }

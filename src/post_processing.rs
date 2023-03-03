@@ -35,8 +35,10 @@ pub fn threaded_fft_fir_filtering(
 
             for n in 0..crate::DIFF_TABLE[i] {
                 let mut note_data = string_data.remove(0);
-                let temp = fft::convolve(&note_data, &h, &window, None); // applying low pass filter
-                out_string_data.push(block_max_decemation(&temp, dec_len));
+                for t in 0..note_data.len() {
+                    note_data[t] /= 1000000.0;
+                }
+                out_string_data.push(block_max_decemation(&note_data, dec_len));
             }
 
             (i, out_string_data)

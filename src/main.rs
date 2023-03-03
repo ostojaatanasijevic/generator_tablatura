@@ -391,7 +391,7 @@ fn cached_process_song(
     let song = fetch_song(song, args.seek_offset, args.sec_to_run);
     let mut note_intensity =
         fft::threaded_interlaced_convolution_realfft(&song, sample_notes, &window, &args);
-    let mut note_intensity = post_processing::threaded_fft_fir_filtering(note_intensity, &h, &args);
+    //   let mut note_intensity = post_processing::threaded_fft_fir_filtering(note_intensity, &h, &args);
     attenuate_neighbours(&note_intensity, &all_notes, 0.75, 1.0)
 }
 
