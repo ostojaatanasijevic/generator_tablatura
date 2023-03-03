@@ -45,10 +45,13 @@ use rustfft::{num_complex::Complex, FftPlanner};
 
 use crate::harmonics::attenuate_neighbours;
 
+const GLADE_UI_SOURCE: &'static str = include_str!("ui.glade");
 pub const THREADS: usize = 8;
 pub const AVG_LEN: usize = 1; // sample_len / 32; // mora da može da deli NFFT, da ne bi cureli podaci
 pub const T_RES: f32 = 1.0 / (44100.0) * AVG_LEN as f32;
 pub const STRINGS: [&str; 6] = ["e", "B", "G", "D", "A", "E"];
+pub const OFFSET_TABLE: [usize; 6] = [0, 5, 10, 15, 19, 24];
+pub const DIFF_TABLE: [usize; 6] = [20, 5, 4, 5, 5, 5];
 
 pub const HERZ: [&str; 44] = [
     "82.41", "87.31", "92.5", "98.0", "103.83", "110.0", "116.54", "123.47", "130.81", "138.59",
@@ -58,15 +61,12 @@ pub const HERZ: [&str; 44] = [
     "698.46", "739.99", "783.99", "830.61", "880.0", "932.33", "987.77",
 ];
 
-const OFFSET_TABLE: [usize; 6] = [0, 5, 10, 15, 19, 24];
-const DIFF_TABLE: [usize; 6] = [20, 5, 4, 5, 5, 5];
-
 //ADD THREAD DETECTION FOR INDIVIDUAL CPUs
 fn main() {
     let args = cli::Args::parse();
 
     let application = gtk::Application::new(
-        Some("io.github.plotters-rs.plotters-gtk-demo"),
+        Some("ostojin.generator.tablatura.realdank"),
         Default::default(),
     );
 
@@ -76,7 +76,6 @@ fn main() {
 
     application.run_with_args(&[""]);
 }
-const GLADE_UI_SOURCE: &'static str = include_str!("ui.glade");
 
 #[derive(Clone)]
 struct PlottingState {
@@ -104,12 +103,6 @@ impl PlottingState {
         data: &Vec<Vec<Vec<f32>>>,
         data_out: &Vec<Vec<Vec<f32>>>,
     ) -> Result<(), Box<dyn Error + 'a>> {
-        println!(
-            "redraw len is {} and time processed is {}",
-            data[0][0].len(),
-            self.time_processed
-        );
-
         let samples_per_sec = data[0][0].len() as f64 / self.time_processed;
         let time_offset = (self.time_offset * samples_per_sec as f64) as usize;
 
@@ -269,18 +262,7 @@ fn build_ui(app: &gtk::Application, args: &cli::Args) {
         slider.connect_value_changed(move |target| {
             let mut state = app_state.borrow_mut();
             ploting_state(&mut *state).time_offset = target.value();
-            println!(
-                "Time offset is was {} {}",
-                state.time_offset,
-                target.value()
-            );
-            println!(
-                "Time processd is was {} {}",
-                state.time_processed,
-                target.value()
-            );
             if (target.value() > state.time_processed - state.time_frame) {
-                println!("len is : {}", state.data_orig[0][0].len());
                 let now = Instant::now();
                 let mut args = state.args.clone();
                 args.seek_offset = state.time_processed as f32;
@@ -394,19 +376,6 @@ fn build_ui(app: &gtk::Application, args: &cli::Args) {
     );
 
     window.show_all();
-}
-
-fn process_song(args: &cli::Args, all_notes: &Vec<Note>) -> Vec<Vec<Vec<f32>>> {
-    println!("Processing...");
-
-    let h = post_processing::lp_filter(args.w, args.lenght_fir);
-    let window = fourier::calculate_window_function(args.nfft, &args.window_function); // blackman je bolji od hann
-    let sample_notes = freq_generator::open_sample_notes(args.nfft);
-    let song = fourier::open_song(&args.file_name, args.seek_offset, args.sec_to_run);
-    let mut note_intensity =
-        fft::threaded_interlaced_convolution_realfft(&song, &sample_notes, &window, &args);
-    let mut note_intensity = post_processing::threaded_fft_fir_filtering(note_intensity, &h, &args);
-    attenuate_neighbours(&note_intensity, &all_notes, 0.75, 1.0)
 }
 
 fn cached_process_song(
