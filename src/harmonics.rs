@@ -119,7 +119,7 @@ pub fn cross_polinate(
             }
             let mut diff = all_notes[note].freq - all_notes[h].freq;
             diff = diff.abs();
-            if diff > 30.0 {
+            if diff > 20.0 {
                 continue;
             }
 
@@ -155,11 +155,9 @@ pub fn attenuate_neighbours(
     power_of_harmonics: f32,
 ) -> Vec<Vec<Vec<f32>>> {
     let mut out = note_intensity.clone();
-    println!("atting");
 
     // E A D G B e
     for note in 0..120 {
-        println!("ima: {}", all_notes[note].komsije.len());
         for hb in all_notes[note].komsije.iter() {
             let wire = 5 - hb.0 / 20;
             let tab = hb.0 % 20;
@@ -172,13 +170,6 @@ pub fn attenuate_neighbours(
                     out[wire][tab][t] = 0.0;
                 }
             }
-
-            println!(
-                "Attenuating attenuate_neighbours {} with {} and a ratio of {}, bfr",
-                &all_notes[hb.0].name,
-                &all_notes[note].name,
-                hb.1 * factor
-            );
         }
     }
 
@@ -208,12 +199,14 @@ pub fn attenuate_harmonics(
                 }
             }
 
+            /*
             println!(
                 "Attenuating {} with {} and a ratio of {}, bfr",
                 &all_notes[hb.0].name,
                 &all_notes[note].name,
                 hb.1 * factor
             );
+            */
         }
     }
 
@@ -238,13 +231,14 @@ pub fn add_harmonics(
                 out[wire][tab][t] +=
                     factor * out[5 - hb.0 / 20][hb.0 % 20][t] * (hb.1).powf(power_of_harmonics);
             }
-
+            /*
             println!(
                 "Attenuating {} with {} and a ratio of {}, bfr",
                 &all_notes[hb.0].name,
                 &all_notes[note].name,
                 hb.1 * factor
             );
+            */
         }
     }
 

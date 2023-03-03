@@ -64,17 +64,6 @@ const DIFF_TABLE: [usize; 6] = [20, 5, 4, 5, 5, 5];
 //ADD THREAD DETECTION FOR INDIVIDUAL CPUs
 fn main() {
     let args = cli::Args::parse();
-    let (tx, rx): (mpsc::Sender<i32>, mpsc::Receiver<i32>) = mpsc::channel();
-
-    let th = thread::spawn(move || {
-        println!("gas");
-        tx.send(1).unwrap();
-    });
-
-    rx.recv();
-    th.join().unwrap();
-
-    let note_intensity = process_song(&args);
 
     let application = gtk::Application::new(
         Some("io.github.plotters-rs.plotters-gtk-demo"),
@@ -82,7 +71,7 @@ fn main() {
     );
 
     application.connect_activate(move |app| {
-        build_ui(app, &note_intensity, args.sec_to_run, &args);
+        build_ui(app, &args);
     });
 
     application.run_with_args(&[""]);
@@ -91,13 +80,14 @@ const GLADE_UI_SOURCE: &'static str = include_str!("ui.glade");
 
 #[derive(Clone)]
 struct PlottingState {
-    x_offset: f64,
-    y_scale: f64,
-    std_x: f64,
-    std_y: f64,
-    pitch: f64,
+    time_offset: f64,
+    y_slider: f64,
+    attenuation_factor: f64,
+    attenuation_power_factor: f64,
+    current_string: f64,
+    song: Vec<i16>,
     time_frame: f64,
-    time_res: f32,
+    all_notes: Vec<Note>,
     data_orig: Vec<Vec<Vec<f32>>>,
     data_att: Vec<Vec<Vec<f32>>>,
     data_out: Vec<Vec<Vec<f32>>>,
@@ -115,10 +105,11 @@ impl PlottingState {
         data_out: &Vec<Vec<Vec<f32>>>,
     ) -> Result<(), Box<dyn Error + 'a>> {
         let samples_per_sec = data[0][0].len() as f64 / self.time_processed;
-        let x_offset = (self.x_offset * samples_per_sec as f64) as usize;
+        let time_offset = (self.time_offset * samples_per_sec as f64) as usize;
 
         let end_point = cmp::min(
-            x_offset + (self.time_frame / self.time_processed * data[0][0].len() as f64) as usize,
+            time_offset
+                + (self.time_frame / self.time_processed * data[0][0].len() as f64) as usize,
             data[0][0].len(),
         );
 
@@ -131,7 +122,7 @@ impl PlottingState {
         let mut chart = ChartBuilder::on(&root)
             .set_label_area_size(LabelAreaPosition::Left, 140)
             .set_label_area_size(LabelAreaPosition::Bottom, 60)
-            .build_cartesian_2d(0..end_point - x_offset, 0.0..max)?;
+            .build_cartesian_2d(0..end_point - time_offset, 0.0..max)?;
 
         println!("Reploting");
 
@@ -139,7 +130,7 @@ impl PlottingState {
             .configure_mesh()
             .disable_x_mesh()
             .disable_y_mesh()
-            .x_label_formatter(&|x| format!("{}", ((*x + x_offset) as f64 / samples_per_sec)))
+            .x_label_formatter(&|x| format!("{:.2}", ((*x + time_offset) as f64 / samples_per_sec)))
             .y_labels(0)
             .draw()?;
 
@@ -147,8 +138,10 @@ impl PlottingState {
             chart.draw_series(
                 AreaSeries::new(
                     (0..)
-                        .zip(data[self.pitch as usize][note][x_offset..end_point].iter())
-                        .map(|(x, y)| (x, *y / 20.0 * self.y_scale as f32 + note as f32 / 200.0)),
+                        .zip(
+                            data[self.current_string as usize][note][time_offset..end_point].iter(),
+                        )
+                        .map(|(x, y)| (x, *y / 20.0 * self.y_slider as f32 + note as f32 / 200.0)),
                     note as f32 / 200.0,
                     &BLUE.mix(0.2),
                 )
@@ -158,8 +151,11 @@ impl PlottingState {
             chart.draw_series(
                 AreaSeries::new(
                     (0..)
-                        .zip(data_out[self.pitch as usize][note][x_offset..end_point].iter())
-                        .map(|(x, y)| (x, *y / 20.0 * self.y_scale as f32 + note as f32 / 200.0)),
+                        .zip(
+                            data_out[self.current_string as usize][note][time_offset..end_point]
+                                .iter(),
+                        )
+                        .map(|(x, y)| (x, *y / 20.0 * self.y_slider as f32 + note as f32 / 200.0)),
                     note as f32 / 200.0,
                     &RED.mix(0.2),
                 )
@@ -171,7 +167,7 @@ impl PlottingState {
 
             if y > 0 {
                 root.draw(&Text::new(
-                    misc::index_to_note(note + OFFSET_TABLE[5 - self.pitch as usize]),
+                    misc::index_to_note(note + OFFSET_TABLE[5 - self.current_string as usize]),
                     (x, y),
                     ("sans-serif", 15.0).into_font(),
                 ));
@@ -183,14 +179,16 @@ impl PlottingState {
     }
 }
 
-fn build_ui(app: &gtk::Application, data: &Vec<Vec<Vec<f32>>>, sec: f32, args: &cli::Args) {
-    let window = fourier::calculate_window_function(args.nfft, &args.window_function); // blackman je bolji od hann
+fn build_ui(app: &gtk::Application, args: &cli::Args) {
+    let song = fourier::open_song(&args.file_name, 0.0, 600.0);
+    let h = post_processing::lp_filter(args.w, args.lenght_fir);
+    let window_fn = fourier::calculate_window_function(args.nfft, &args.window_function); // blackman je bolji od hann
     let sample_notes = freq_generator::open_sample_notes(args.nfft);
     let mut all_notes = harmonics::generate_all_notes();
-    harmonics::generate_note_network(&mut all_notes, &sample_notes, &window, args.nfft);
-    harmonics::cross_polinate(&mut all_notes, &sample_notes, &window, args.nfft);
+    harmonics::generate_note_network(&mut all_notes, &sample_notes, &window_fn, args.nfft);
+    harmonics::cross_polinate(&mut all_notes, &sample_notes, &window_fn, args.nfft);
 
-    print!("{:?}", &all_notes[0]);
+    let mut data = cached_process_song(&song, &args, &all_notes, &h, &window_fn, &sample_notes);
 
     let builder = gtk::Builder::from_string(GLADE_UI_SOURCE);
     let window = builder.object::<gtk::Window>("MainWindow").unwrap();
@@ -198,27 +196,33 @@ fn build_ui(app: &gtk::Application, data: &Vec<Vec<Vec<f32>>>, sec: f32, args: &
     window.set_title("Generator tablatura");
 
     let drawing_area: gtk::DrawingArea = builder.object("MainDrawingArea").unwrap();
+
+    // Kreiranje instanci slidera iz ui.glade fajla
+    let low_threshold_slider = builder.object::<gtk::Scale>("LowThresholdSlider").unwrap();
+    let high_threshold_slider = builder.object::<gtk::Scale>("HighThresholdSlider").unwrap();
     let string_slider = builder.object::<gtk::Scale>("StringSlider").unwrap();
     let time_frame_slider = builder.object::<gtk::Scale>("TimeFrameSlider").unwrap();
     let time_slider = builder.object::<gtk::Scale>("TimeSlider").unwrap();
-    let y_scale_slider = builder.object::<gtk::Scale>("MeanYScale").unwrap();
-    let std_x_scale = builder.object::<gtk::Scale>("SDXScale").unwrap();
-    let std_y_scale = builder.object::<gtk::Scale>("SDYScale").unwrap();
-
-    let low_threshold_slider = builder.object::<gtk::Scale>("LowThresholdSlider").unwrap();
-    let high_threshold_slider = builder.object::<gtk::Scale>("HighThresholdSlider").unwrap();
+    let y_scale_slider = builder.object::<gtk::Scale>("YScaleSlider").unwrap();
+    let attenuation_factor_slider = builder
+        .object::<gtk::Scale>("AttenuationFactorSlider")
+        .unwrap();
+    let attenuation_power_factor_slider = builder
+        .object::<gtk::Scale>("AttenuationPowerFactorSlider")
+        .unwrap();
 
     let app_state = Rc::new(RefCell::new(PlottingState {
-        x_offset: time_slider.value(),
-        y_scale: y_scale_slider.value(),
-        std_x: std_x_scale.value(),
-        std_y: std_y_scale.value(),
-        pitch: string_slider.value(),
+        time_offset: time_slider.value(),
+        y_slider: y_scale_slider.value(),
+        attenuation_factor: attenuation_factor_slider.value(),
+        attenuation_power_factor: attenuation_power_factor_slider.value(),
+        current_string: string_slider.value(),
         time_frame: time_frame_slider.value(),
-        time_res: sec / data.len() as f32,
-        data_orig: data.clone(),
+        all_notes,
+        song,
         data_att: data.clone(),
         data_out: data.clone(),
+        data_orig: data,
         low_threshold: 0.0,
         high_threshold: 1.0,
         args: args.clone(),
@@ -250,37 +254,6 @@ fn build_ui(app: &gtk::Application, data: &Vec<Vec<Vec<f32>>>, sec: f32, args: &
                 drawing_area.queue_draw();
             });
         };
-    /*
-    let process_more_data =
-        |slider: &gtk::Scale,
-         time: Box<dyn Fn(&mut PlottingState) -> &mut f64 + 'static>,
-         data_orig: Box<dyn Fn(&mut PlottingState) -> &mut Vec<Vec<Vec<f32>>> + 'static>,
-         time_processed: Box<dyn Fn(&mut PlottingState) -> &mut f64 + 'static>| {
-            let app_state = app_state.clone();
-            let drawing_area = drawing_area.clone();
-            slider.connect_value_changed(move |target| {
-                let mut state = app_state.borrow_mut();
-                *time(&mut *state) = target.value();
-
-                if (target.value() > state.time_processed - state.time_frame) {
-                    let mut args = state.args.clone();
-                    args.seek_offset = state.time_processed as f32;
-                    args.sec_to_run = 5.0;
-                    *time_processed(&mut *state) += args.sec_to_run as f64;
-                    let temp = process_song(&args);
-                    *data_orig(&mut *state) = weld_note_intensity(&state.data_orig, &temp);
-                }
-
-                drawing_area.queue_draw();
-            });
-        };
-    process_more_data(
-        &time_slider,
-        Box::new(|s| &mut s.x_offset),
-        Box::new(|s| &mut s.data_orig),
-        Box::new(|s| &mut s.time_processed),
-    );
-    */
 
     let process_more_data_exp = |slider: &gtk::Scale,
                                  ploting_state: Box<
@@ -290,15 +263,25 @@ fn build_ui(app: &gtk::Application, data: &Vec<Vec<Vec<f32>>>, sec: f32, args: &
         let drawing_area = drawing_area.clone();
         slider.connect_value_changed(move |target| {
             let mut state = app_state.borrow_mut();
-            ploting_state(&mut *state).x_offset = target.value();
+            ploting_state(&mut *state).time_offset = target.value();
 
             if (target.value() > state.time_processed - state.time_frame) {
+                let now = Instant::now();
                 let mut args = state.args.clone();
                 args.seek_offset = state.time_processed as f32;
                 args.sec_to_run = 5.0;
                 ploting_state(&mut *state).time_processed += args.sec_to_run as f64;
-                let temp = process_song(&args);
+                let temp = cached_process_song(
+                    &state.song,
+                    &args,
+                    &state.all_notes,
+                    &h,
+                    &window_fn,
+                    &sample_notes,
+                );
                 ploting_state(&mut *state).data_orig = weld_note_intensity(&state.data_orig, &temp);
+
+                println!("Processing took {} seconds", now.elapsed().as_secs_f32());
             }
 
             drawing_area.queue_draw();
@@ -311,15 +294,14 @@ fn build_ui(app: &gtk::Application, data: &Vec<Vec<Vec<f32>>>, sec: f32, args: &
          factor: Box<dyn Fn(&mut PlottingState) -> &mut f64 + 'static>| {
             let app_state = app_state.clone();
             let drawing_area = drawing_area.clone();
-            let all_notes = all_notes.clone();
             slider.connect_value_changed(move |target| {
                 let mut state = app_state.borrow_mut();
                 *factor(&mut *state) = target.value();
                 let temp = harmonics::attenuate_harmonics(
                     &state.data_orig,
-                    &all_notes,
-                    state.std_x as f32,
-                    state.std_y as f32,
+                    &state.all_notes,
+                    state.attenuation_factor as f32,
+                    state.attenuation_power_factor as f32,
                 );
 
                 ploting_state(&mut *state).data_out = post_processing::schmitt(
@@ -340,7 +322,6 @@ fn build_ui(app: &gtk::Application, data: &Vec<Vec<Vec<f32>>>, sec: f32, args: &
             let app_state = app_state.clone();
             let drawing_area = drawing_area.clone();
 
-            let all_notes = all_notes.clone();
             what.connect_value_changed(move |target| {
                 let mut state = app_state.borrow_mut();
                 *factor(&mut *state) = target.value();
@@ -354,14 +335,22 @@ fn build_ui(app: &gtk::Application, data: &Vec<Vec<Vec<f32>>>, sec: f32, args: &
             });
         };
 
-    handle_change(&string_slider, Box::new(|s| &mut s.pitch));
+    handle_change(&string_slider, Box::new(|s| &mut s.current_string));
     handle_change(&time_frame_slider, Box::new(|s| &mut s.time_frame));
 
     process_more_data_exp(&time_slider, Box::new(|s| s));
-    handle_change(&y_scale_slider, Box::new(|s| &mut s.y_scale));
+    handle_change(&y_scale_slider, Box::new(|s| &mut s.y_slider));
 
-    recalculate_attenuation(&std_x_scale, Box::new(|s| s), Box::new(|s| &mut s.std_x));
-    recalculate_attenuation(&std_y_scale, Box::new(|s| s), Box::new(|s| &mut s.std_y));
+    recalculate_attenuation(
+        &attenuation_factor_slider,
+        Box::new(|s| s),
+        Box::new(|s| &mut s.attenuation_factor),
+    );
+    recalculate_attenuation(
+        &attenuation_power_factor_slider,
+        Box::new(|s| s),
+        Box::new(|s| &mut s.attenuation_power_factor),
+    );
 
     recalculate_thresholds(
         &low_threshold_slider,
@@ -378,20 +367,30 @@ fn build_ui(app: &gtk::Application, data: &Vec<Vec<Vec<f32>>>, sec: f32, args: &
     window.show_all();
 }
 
-fn process_song(args: &cli::Args) -> Vec<Vec<Vec<f32>>> {
+fn process_song(args: &cli::Args, all_notes: &Vec<Note>) -> Vec<Vec<Vec<f32>>> {
     println!("Processing...");
 
     let h = post_processing::lp_filter(args.w, args.lenght_fir);
     let window = fourier::calculate_window_function(args.nfft, &args.window_function); // blackman je bolji od hann
-
     let sample_notes = freq_generator::open_sample_notes(args.nfft);
-    let mut all_notes = harmonics::generate_all_notes();
-    harmonics::generate_note_network(&mut all_notes, &sample_notes, &window, args.nfft);
-    harmonics::cross_polinate(&mut all_notes, &sample_notes, &window, args.nfft);
-
     let song = fourier::open_song(&args.file_name, args.seek_offset, args.sec_to_run);
     let mut note_intensity =
         fft::threaded_interlaced_convolution_realfft(&song, &sample_notes, &window, &args);
+    let mut note_intensity = post_processing::threaded_fft_fir_filtering(note_intensity, &h, &args);
+    attenuate_neighbours(&note_intensity, &all_notes, 0.75, 1.0)
+}
+
+fn cached_process_song(
+    song: &Vec<i16>,
+    args: &cli::Args,
+    all_notes: &Vec<Note>,
+    h: &Vec<f32>,
+    window: &Vec<f32>,
+    sample_notes: &Vec<Vec<Vec<i16>>>,
+) -> Vec<Vec<Vec<f32>>> {
+    let song = fetch_song(song, args.seek_offset, args.sec_to_run);
+    let mut note_intensity =
+        fft::threaded_interlaced_convolution_realfft(&song, sample_notes, &window, &args);
     let mut note_intensity = post_processing::threaded_fft_fir_filtering(note_intensity, &h, &args);
     attenuate_neighbours(&note_intensity, &all_notes, 0.75, 1.0)
 }
@@ -409,4 +408,14 @@ fn weld_note_intensity(
     }
 
     out
+}
+
+fn fetch_song(song: &Vec<i16>, seek: f32, seconds: f32) -> Vec<i16> {
+    let song_samples = (seconds * 44100.0) as usize;
+    let seek_samples = (seek * 44100.0) as usize;
+
+    let end_sample = std::cmp::min(seek_samples + song_samples, song.len());
+    let seek_samples = std::cmp::min(seek_samples, song.len());
+    let data = song[seek_samples..end_sample].to_vec();
+    data
 }

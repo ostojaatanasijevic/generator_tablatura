@@ -2,13 +2,13 @@
 <!-- Generated with glade 3.38.2 -->
 <interface>
   <requires lib="gtk+" version="3.24"/>
-  <object class="GtkAdjustment" id="MeanX">
+  <object class="GtkAdjustment" id="TimeSliderAdjustment">
     <property name="lower">0</property>
     <property name="upper">1000</property>
     <property name="step-increment">1</property>
     <property name="page-increment">10</property>
   </object>
-  <object class="GtkAdjustment" id="MeanY">
+  <object class="GtkAdjustment" id="YScale">
     <property name="lower">0</property>
     <property name="upper">10</property>
     <property name="value">1</property>
@@ -17,27 +17,27 @@
   </object>
 
   <!-- Žica gitara -->
-  <object class="GtkAdjustment" id="Pitch">
+  <object class="GtkAdjustment" id="StringAdjustment">
     <property name="lower">0</property>
     <property name="upper">5</property>
     <property name="value">0</property>
     <property name="step-increment">1</property>
     <property name="page-increment">1</property>
   </object>
-  <object class="GtkAdjustment" id="SDX">
+  <object class="GtkAdjustment" id="AttenuationFactorAdjustment">
     <property name="upper">10</property>
-    <property name="value">2</property>
+    <property name="value">0</property>
     <property name="step-increment">1</property>
     <property name="page-increment">10</property>
   </object>
-  <object class="GtkAdjustment" id="SDY">
+  <object class="GtkAdjustment" id="AttenuationPowerFactorAdjustment">
     <property name="upper">10</property>
-    <property name="value">5</property>
+    <property name="value">1</property>
     <property name="step-increment">1</property>
     <property name="page-increment">10</property>
   </object>
   <object class="GtkAdjustment" id="TimeFrameAdjustment">
-    <property name="upper">20</property>
+    <property name="upper">30</property>
     <property name="value">5</property>
     <property name="step-increment">0.01</property>
     <property name="page-increment">10</property>
@@ -47,7 +47,7 @@
   <object class="GtkAdjustment" id="HighThresholdAdjustment">
     <property name="lower">0</property>
     <property name="upper">0.1</property>
-    <property name="value">0.01</property>
+    <property name="value">0.001</property>
     <property name="step-increment">0.001</property>
     <property name="page-increment">1</property>
   </object>
@@ -56,7 +56,7 @@
   <object class="GtkAdjustment" id="LowThresholdAdjustment">
     <property name="lower">0</property>
     <property name="upper">0.1</property>
-    <property name="value">0.005</property>
+    <property name="value">0.0005</property>
     <property name="step-increment">0.001</property>
     <property name="page-increment">1</property>
   </object>
@@ -103,7 +103,7 @@
               <object class="GtkLabel">
                 <property name="visible">True</property>
                 <property name="can-focus">False</property>
-                <property name="label" translatable="yes">SD X</property>
+                <property name="label" translatable="yes">Attenuation Factor</property>
               </object>
               <packing>
                 <property name="left-attach">2</property>
@@ -114,7 +114,7 @@
               <object class="GtkLabel">
                 <property name="visible">True</property>
                 <property name="can-focus">False</property>
-                <property name="label" translatable="yes">SD Y</property>
+                <property name="label" translatable="yes">Attenuation Power Factor</property>
               </object>
               <packing>
                 <property name="left-attach">2</property>
@@ -125,7 +125,7 @@
               <object class="GtkScale" id="TimeSlider">
                 <property name="visible">True</property>
                 <property name="can-focus">True</property>
-                <property name="adjustment">MeanX</property>
+                <property name="adjustment">TimeSliderAdjustment</property>
                 <property name="round-digits">1</property>
                 <property name="digits">4</property>
                 <property name="value-pos">left</property>
@@ -136,10 +136,10 @@
               </packing>
             </child>
             <child>
-              <object class="GtkScale" id="MeanYScale">
+              <object class="GtkScale" id="YScaleSlider">
                 <property name="visible">True</property>
                 <property name="can-focus">True</property>
-                <property name="adjustment">MeanY</property>
+                <property name="adjustment">YScale</property>
                 <property name="round-digits">1</property>
                 <property name="digits">4</property>
                 <property name="value-pos">left</property>
@@ -150,10 +150,10 @@
               </packing>
             </child>
             <child>
-              <object class="GtkScale" id="SDXScale">
+              <object class="GtkScale" id="AttenuationFactorSlider">
                 <property name="visible">True</property>
                 <property name="can-focus">True</property>
-                <property name="adjustment">SDX</property>
+                <property name="adjustment">AttenuationFactorAdjustment</property>
                 <property name="round-digits">1</property>
                 <property name="digits">4</property>
                 <property name="value-pos">left</property>
@@ -164,10 +164,10 @@
               </packing>
             </child>
             <child>
-              <object class="GtkScale" id="SDYScale">
+              <object class="GtkScale" id="AttenuationPowerFactorSlider">
                 <property name="visible">True</property>
                 <property name="can-focus">True</property>
-                <property name="adjustment">SDY</property>
+                <property name="adjustment">AttenuationPowerFactorAdjustment</property>
                 <property name="round-digits">1</property>
                 <property name="digits">4</property>
                 <property name="value-pos">left</property>
@@ -192,7 +192,7 @@
               <object class="GtkLabel">
                 <property name="visible">True</property>
                 <property name="can-focus">False</property>
-                <property name="label" translatable="yes">Roll</property>
+                <property name="label" translatable="yes">Time Frame</property>
                 <property name="use-underline">True</property>
               </object>
               <packing>
@@ -204,7 +204,7 @@
               <object class="GtkScale" id="StringSlider">
                 <property name="visible">True</property>
                 <property name="can-focus">True</property>
-                <property name="adjustment">Pitch</property>
+                <property name="adjustment">StringAdjustment</property>
                 <property name="round-digits">1</property>
                 <property name="digits">0</property>
                 <property name="value-pos">left</property>

@@ -237,8 +237,8 @@ pub fn interlaced_convolution_realfft<T: unsinkable, U: unsinkable>(
     let mut h = vec![Complex { re: 0.0, im: 0.0 }; nfft / 2 + 1];
     let mut h_r = vec![0.0; nfft];
 
-    println!("len: {}", nfft);
-    let window = fourier::calculate_window_function(sample_len, "blackman");
+    //potrebno samo ako se radi koherentno odabiranje, što neću raditi hahahahaahah
+    //let window = fourier::calculate_window_function(sample_len, "blackman");
     for i in 0..sample_len {
         h_r[i] = (input_small[i].to_float()) * window[i] / 65536.0;
     }
@@ -270,7 +270,6 @@ pub fn interlaced_convolution_realfft<T: unsinkable, U: unsinkable>(
         ifft.process(&mut s_buffer, &mut current);
         out.extend(current);
     }
-    println!("inter done len : {}", out.len());
     out
 }
 
