@@ -16,7 +16,10 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use cairo::glib::Receiver;
+use gtk::builders::ScrollbarBuilder;
 use gtk::prelude::*;
+use gtk::Adjustment;
+use gtk::Scrollbar;
 use plotters::prelude::*;
 use plotters_cairo::CairoBackend;
 
@@ -52,6 +55,9 @@ pub const T_RES: f32 = 1.0 / (44100.0) * AVG_LEN as f32;
 pub const STRINGS: [&str; 6] = ["e", "B", "G", "D", "A", "E"];
 pub const OFFSET_TABLE: [usize; 6] = [0, 5, 10, 15, 19, 24];
 pub const DIFF_TABLE: [usize; 6] = [20, 5, 4, 5, 5, 5];
+
+pub const BROJ_ZICA: usize = 6;
+pub const BROJ_PRAGOVA: usize = 20;
 
 pub const HERZ: [&str; 44] = [
     "82.41", "87.31", "92.5", "98.0", "103.83", "110.0", "116.54", "123.47", "130.81", "138.59",
@@ -193,7 +199,27 @@ fn build_ui(app: &gtk::Application, args: &cli::Args) {
 
     window.set_title("Generator tablatura");
 
+    let main_box: gtk::Box = builder.object("MainBox").unwrap();
     let drawing_area: gtk::DrawingArea = builder.object("MainDrawingArea").unwrap();
+
+    let scroll_bar_adjustment = Adjustment::builder()
+        .lower(0.0)
+        .page_increment(1.0)
+        .page_size(10.0)
+        .step_increment(0.1)
+        .upper(1000.0)
+        .value(0.0)
+        .build();
+    let scroll_bar = Scrollbar::builder()
+        .adjustment(&scroll_bar_adjustment)
+        .margin(30)
+        .parent(&main_box)
+        .orientation(gtk::Orientation::Vertical)
+        .height_request(drawing_area.allocated_height())
+        .vexpand_set(true)
+        .build();
+    scroll_bar.connect_value_changed(|t| print!("ide gas"));
+    //let scroll_bar = builder.object::<gtk::Scrollbar>("ScrollBar").unwrap();
 
     // Kreiranje instanci slidera iz ui.glade fajla
     let low_threshold_slider = builder.object::<gtk::Scale>("LowThresholdSlider").unwrap();
@@ -387,10 +413,10 @@ fn cached_process_song(
     sample_notes: &Vec<Vec<Vec<i16>>>,
 ) -> Vec<Vec<Vec<f32>>> {
     let song = fetch_song(song, args.seek_offset, args.sec_to_run);
-    let mut note_intensity =
-        fft::threaded_interlaced_convolution_realfft(&song, sample_notes, &window, &args);
+    //let mut note_intensity =
+    fft::threaded_interlaced_convolution_realfft(&song, sample_notes, &window, &args)
     //   let mut note_intensity = post_processing::threaded_fft_fir_filtering(note_intensity, &h, &args);
-    attenuate_neighbours(&note_intensity, &all_notes, 0.75, 1.0)
+    //attenuate_neighbours(&note_intensity, &all_notes, 0.75, 1.0)
 }
 
 fn weld_note_intensity(
@@ -399,8 +425,8 @@ fn weld_note_intensity(
 ) -> Vec<Vec<Vec<f32>>> {
     let mut out = first_part.clone();
 
-    for wire in 0..6 {
-        for note in 0..20 {
+    for wire in 0..first_part.len() {
+        for note in 0..first_part[0].len() {
             out[wire][note].extend(second_part[wire][note].to_vec());
         }
     }

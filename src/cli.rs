@@ -32,7 +32,7 @@ pub struct Args {
     ///Number of seconds to analyze
     pub sec_to_run: f32,
 
-    #[arg(short, long, default_value = "blackman")]
+    #[arg(short, long, default_value = "hann")]
     ///Window function
     pub window_function: String,
 

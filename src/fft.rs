@@ -22,13 +22,12 @@ use crate::post_processing::block_average_decemation;
 use crate::post_processing::block_max_decemation;
 use crate::post_processing::fir_filter;
 use crate::AVG_LEN;
+use crate::BROJ_PRAGOVA;
+use crate::BROJ_ZICA;
 use crate::HERZ;
 use crate::OFFSET_TABLE;
 use crate::STRINGS;
 use crate::THREADS;
-
-const BROJ_ZICA: usize = 6;
-const BROJ_PRAGOVA: usize = 20;
 
 pub fn threaded_interlaced_convolution_realfft(
     song: &Vec<i16>,
@@ -45,7 +44,7 @@ pub fn threaded_interlaced_convolution_realfft(
         let conv_type = args.conv_type.clone();
 
         handles.push(thread::spawn(move || {
-            let mut notes_on_string = vec![Vec::new(); 20];
+            let mut notes_on_string = vec![Vec::new(); BROJ_PRAGOVA];
             for n in 0..(crate::DIFF_TABLE[i]) {
                 notes_on_string[n] = interlaced_convolution_realfft(
                     &song,
@@ -67,7 +66,7 @@ pub fn threaded_interlaced_convolution_realfft(
     }
 
     for wire in 1..6 {
-        for i in 0..20 - crate::DIFF_TABLE[wire] {
+        for i in 0..BROJ_PRAGOVA - crate::DIFF_TABLE[wire] {
             note_intensity[wire][i + crate::DIFF_TABLE[wire]] = note_intensity[wire - 1][i].clone();
         }
     }
@@ -90,7 +89,7 @@ pub fn threaded_interlaced_convolution(
         let conv_type = args.conv_type.clone();
 
         handles.push(thread::spawn(move || {
-            let mut notes_on_string = vec![Vec::new(); 20];
+            let mut notes_on_string = vec![Vec::new(); BROJ_PRAGOVA];
             for n in 0..(crate::DIFF_TABLE[i]) {
                 notes_on_string[n] =
                     interlaced_convolution(&song, &sample_notes[n], &window, None, 512);
@@ -107,7 +106,7 @@ pub fn threaded_interlaced_convolution(
     }
 
     for wire in 1..6 {
-        for i in 0..20 - crate::DIFF_TABLE[wire] {
+        for i in 0..BROJ_PRAGOVA - crate::DIFF_TABLE[wire] {
             note_intensity[wire][i + crate::DIFF_TABLE[wire]] = note_intensity[wire - 1][i].clone();
         }
     }
@@ -130,8 +129,8 @@ pub fn redundant_threaded_interlaced_convolution(
         let conv_type = args.conv_type.clone();
 
         handles.push(thread::spawn(move || {
-            let mut notes_on_string = vec![Vec::new(); 20];
-            for n in 0..20 {
+            let mut notes_on_string = vec![Vec::new(); BROJ_PRAGOVA];
+            for n in 0..BROJ_PRAGOVA {
                 notes_on_string[n] =
                     interlaced_convolution(&song, &sample_notes[n], &window, None, 512);
             }
@@ -175,7 +174,7 @@ pub fn convolve<T: unsinkable, U: unsinkable>(
     let mut h = vec![Complex { re: 0.0, im: 0.0 }; nfft / 2 + 1];
     let mut h_r = vec![0.0; nfft];
 
-    let window = fourier::calculate_window_function(input_small.len(), "blackman");
+    let window = fourier::calculate_window_function(input_small.len(), "hann");
     for i in 0..sample_len {
         h_r[i] = (input_small[i].to_float()) * window[i] / 65536.0;
     }

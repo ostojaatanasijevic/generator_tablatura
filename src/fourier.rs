@@ -21,8 +21,8 @@ use crate::OFFSET_TABLE;
 use crate::STRINGS;
 use crate::THREADS;
 
-const broj_zica: usize = 6;
-const broj_pragova: usize = 20;
+use crate::BROJ_PRAGOVA;
+use crate::BROJ_ZICA;
 
 pub trait unsinkable {
     fn to_float(&self) -> f32;
@@ -146,7 +146,7 @@ pub fn open_midi_note(note: &Note) -> Vec<i16> {
 
 pub fn open_sample_notes(sample_len: usize) -> Vec<Vec<Vec<i16>>> {
     let start: usize = 0;
-    let stop: usize = 20;
+    let stop: usize = BROJ_PRAGOVA;
     let mut samples_fft = vec![vec![Vec::new(); stop - start]; 6];
 
     for string in 0..STRINGS.len() {

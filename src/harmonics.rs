@@ -2,6 +2,9 @@ use crate::HERZ;
 use crate::OFFSET_TABLE;
 use crate::STRINGS;
 
+use crate::BROJ_PRAGOVA;
+use crate::BROJ_ZICA;
+
 #[derive(Debug, Clone)]
 pub struct Note {
     pub name: String,
@@ -14,7 +17,7 @@ pub fn generate_all_notes() -> Vec<Note> {
     let mut all_notes: Vec<Note> = Vec::new();
     let mut counter = 0;
     for string in STRINGS.iter().rev() {
-        for n in 0..20 {
+        for n in 0..BROJ_PRAGOVA {
             let mut name_new = String::from(*string);
             name_new.push_str(&n.to_string());
             //println!("{name_new}");
@@ -45,7 +48,7 @@ pub fn generate_note_network(
 
         let mut auto_conv = crate::fft::convolve(
             &midi_note,
-            &sample_notes[5 - note / 20][note % 20],
+            &sample_notes[5 - note / BROJ_PRAGOVA][note % BROJ_PRAGOVA],
             &window,
             None,
         );
@@ -68,8 +71,12 @@ pub fn generate_note_network(
 
             //get corresponding wav sine of freq harmonic
 
-            let mut conv =
-                crate::fft::convolve(&midi_note, &sample_notes[5 - h / 20][h % 20], &window, None);
+            let mut conv = crate::fft::convolve(
+                &midi_note,
+                &sample_notes[5 - h / BROJ_PRAGOVA][h % BROJ_PRAGOVA],
+                &window,
+                None,
+            );
             // zero index compare
             //let mut intensity = conv[0];
             // average compare
@@ -100,8 +107,8 @@ pub fn cross_polinate(
 
     for note in 0..end {
         let mut auto_conv = crate::fft::convolve(
-            &sample_notes[5 - note / 20][note % 20],
-            &sample_notes[5 - note / 20][note % 20],
+            &sample_notes[5 - note / BROJ_PRAGOVA][note % BROJ_PRAGOVA],
+            &sample_notes[5 - note / BROJ_PRAGOVA][note % BROJ_PRAGOVA],
             &window,
             None,
         );
@@ -119,13 +126,13 @@ pub fn cross_polinate(
             }
             let mut diff = all_notes[note].freq - all_notes[h].freq;
             diff = diff.abs();
-            if diff > 20.0 {
+            if diff > BROJ_PRAGOVA as f32 {
                 continue;
             }
 
             let mut conv = crate::fft::convolve(
-                &sample_notes[5 - note / 20][note % 20],
-                &sample_notes[5 - h / 20][h % 20],
+                &sample_notes[5 - note / BROJ_PRAGOVA][note % BROJ_PRAGOVA],
+                &sample_notes[5 - h / BROJ_PRAGOVA][h % BROJ_PRAGOVA],
                 &window,
                 None,
             );
@@ -157,14 +164,15 @@ pub fn attenuate_neighbours(
     let mut out = note_intensity.clone();
 
     // E A D G B e
-    for note in 0..120 {
+    for note in 0..6 * BROJ_PRAGOVA {
         for hb in all_notes[note].komsije.iter() {
-            let wire = 5 - hb.0 / 20;
-            let tab = hb.0 % 20;
+            let wire = 5 - hb.0 / BROJ_PRAGOVA;
+            let tab = hb.0 % BROJ_PRAGOVA;
 
             for t in 0..out[wire][tab].len() {
-                out[wire][tab][t] -=
-                    factor * out[5 - note / 20][note % 20][t] * (hb.1).powf(power_of_harmonics);
+                out[wire][tab][t] -= factor
+                    * out[5 - note / BROJ_PRAGOVA][note % BROJ_PRAGOVA][t]
+                    * (hb.1).powf(power_of_harmonics);
 
                 if out[wire][tab][t] < 0.0 {
                     out[wire][tab][t] = 0.0;
@@ -185,14 +193,15 @@ pub fn attenuate_harmonics(
     let mut out = note_intensity.clone();
 
     // E A D G B e
-    for note in 0..120 {
+    for note in 0..6 * BROJ_PRAGOVA {
         for hb in all_notes[note].harmonics.iter() {
-            let wire = 5 - hb.0 / 20;
-            let tab = hb.0 % 20;
+            let wire = 5 - hb.0 / BROJ_PRAGOVA;
+            let tab = hb.0 % BROJ_PRAGOVA;
 
             for t in 0..out[wire][tab].len() {
-                out[wire][tab][t] -=
-                    factor * out[5 - note / 20][note % 20][t] * (hb.1).powf(power_of_harmonics);
+                out[wire][tab][t] -= factor
+                    * out[5 - note / BROJ_PRAGOVA][note % BROJ_PRAGOVA][t]
+                    * (hb.1).powf(power_of_harmonics);
 
                 if out[wire][tab][t] < 0.0 {
                     out[wire][tab][t] = 0.0;
@@ -222,14 +231,15 @@ pub fn add_harmonics(
     let mut out = note_intensity.clone();
 
     // E A D G B e
-    for note in (0..120).rev() {
+    for note in (0..6 * BROJ_PRAGOVA).rev() {
         for hb in all_notes[note].harmonics.iter() {
-            let wire = 5 - note / 20;
-            let tab = note % 20;
+            let wire = 5 - note / BROJ_PRAGOVA;
+            let tab = note % BROJ_PRAGOVA;
 
             for t in 0..out[wire][tab].len() {
-                out[wire][tab][t] +=
-                    factor * out[5 - hb.0 / 20][hb.0 % 20][t] * (hb.1).powf(power_of_harmonics);
+                out[wire][tab][t] += factor
+                    * out[5 - hb.0 / BROJ_PRAGOVA][hb.0 % BROJ_PRAGOVA][t]
+                    * (hb.1).powf(power_of_harmonics);
             }
             /*
             println!(
