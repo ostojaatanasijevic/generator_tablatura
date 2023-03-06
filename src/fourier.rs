@@ -104,10 +104,7 @@ pub fn calculate_window_function(n: usize, wt: &str) -> Vec<f32> {
     out
 }
 
-pub fn open_song(filename: &str, seek: f32, seconds: f32) -> Vec<i16> {
-    let song_samples = (seconds * 44100.0) as usize;
-    let seek_samples = (seek * 44100.0) as usize;
-
+pub fn open_song(filename: &str) -> Vec<i16> {
     let mut file =
         File::open(Path::new(filename)).expect(&format!("Can't open file named {filename}"));
     let (header, raw_data) =
@@ -121,10 +118,6 @@ pub fn open_song(filename: &str, seek: f32, seconds: f32) -> Vec<i16> {
         eprintln!("Pazi, ovo je dvo kanalni wav fajl");
         data = data.iter().skip(1).step_by(2).copied().collect();
     }
-
-    let end_sample = std::cmp::min(seek_samples + song_samples, data.len());
-    let seek_samples = std::cmp::min(seek_samples, data.len());
-    let data = data[seek_samples..end_sample].to_vec();
 
     println!("song loaded!");
     data

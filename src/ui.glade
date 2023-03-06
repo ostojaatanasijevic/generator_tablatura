@@ -1,32 +1,9 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- Generated with glade 3.38.2 -->
+<!-- Generated with glade 3.40.0 -->
 <interface>
   <requires lib="gtk+" version="3.24"/>
-  <object class="GtkAdjustment" id="TimeSliderAdjustment">
-    <property name="lower">0</property>
-    <property name="upper">1000</property>
-    <property name="step-increment">1</property>
-    <property name="page-increment">10</property>
-  </object>
-  <object class="GtkAdjustment" id="YScale">
-    <property name="lower">0</property>
-    <property name="upper">10</property>
-    <property name="value">1</property>
-    <property name="step-increment">1</property>
-    <property name="page-increment">10</property>
-  </object>
-
-  <!-- Žica gitara -->
-  <object class="GtkAdjustment" id="StringAdjustment">
-    <property name="lower">0</property>
-    <property name="upper">5</property>
-    <property name="value">0</property>
-    <property name="step-increment">1</property>
-    <property name="page-increment">1</property>
-  </object>
   <object class="GtkAdjustment" id="AttenuationFactorAdjustment">
     <property name="upper">10</property>
-    <property name="value">0</property>
     <property name="step-increment">1</property>
     <property name="page-increment">10</property>
   </object>
@@ -36,33 +13,40 @@
     <property name="step-increment">1</property>
     <property name="page-increment">10</property>
   </object>
+  <object class="GtkAdjustment" id="HighThresholdAdjustment">
+    <property name="upper">0.10</property>
+    <property name="value">0.001</property>
+    <property name="step-increment">0.001</property>
+    <property name="page-increment">1</property>
+  </object>
+  <object class="GtkAdjustment" id="LowThresholdAdjustment">
+    <property name="upper">0.10</property>
+    <property name="value">0.0005</property>
+    <property name="step-increment">0.001</property>
+    <property name="page-increment">1</property>
+  </object>
+  <object class="GtkAdjustment" id="StringAdjustment">
+    <property name="upper">5</property>
+    <property name="step-increment">1</property>
+    <property name="page-increment">1</property>
+  </object>
   <object class="GtkAdjustment" id="TimeFrameAdjustment">
     <property name="upper">30</property>
     <property name="value">5</property>
     <property name="step-increment">0.01</property>
     <property name="page-increment">10</property>
   </object>
-
-  <!-- high threshold -->
-  <object class="GtkAdjustment" id="HighThresholdAdjustment">
-    <property name="lower">0</property>
-    <property name="upper">0.1</property>
-    <property name="value">0.001</property>
-    <property name="step-increment">0.001</property>
-    <property name="page-increment">1</property>
+  <object class="GtkAdjustment" id="TimeSliderAdjustment">
+    <property name="upper">300</property>
+    <property name="step-increment">1</property>
+    <property name="page-increment">10</property>
   </object>
-
-  <!-- low threshold -->
-  <object class="GtkAdjustment" id="LowThresholdAdjustment">
-    <property name="lower">0</property>
-    <property name="upper">0.1</property>
-    <property name="value">0.0005</property>
-    <property name="step-increment">0.001</property>
-    <property name="page-increment">1</property>
+  <object class="GtkAdjustment" id="YScale">
+    <property name="upper">10</property>
+    <property name="value">1</property>
+    <property name="step-increment">1</property>
+    <property name="page-increment">10</property>
   </object>
-
-
-
   <object class="GtkWindow" id="MainWindow">
     <property name="can-focus">False</property>
     <child>
@@ -70,13 +54,13 @@
         <property name="visible">True</property>
         <property name="can-focus">False</property>
         <property name="orientation">vertical</property>
+        <signal name="scroll-event" handler="on_scroll" swapped="no"/>
         <child>
-          <!-- n-columns=4 n-rows=3 -->
+          <!-- n-columns=4 n-rows=4 -->
           <object class="GtkGrid">
             <property name="visible">True</property>
             <property name="can-focus">False</property>
             <property name="column-homogeneous">True</property>
-            
             <child>
               <object class="GtkLabel">
                 <property name="visible">True</property>
@@ -228,8 +212,6 @@
                 <property name="top-attach">2</property>
               </packing>
             </child>
-  
-            <!-- Label za high threshold-->
             <child>
               <object class="GtkLabel">
                 <property name="visible">True</property>
@@ -255,8 +237,6 @@
                 <property name="top-attach">3</property>
               </packing>
             </child>
- 
-            <!-- Label za low threshold-->
             <child>
               <object class="GtkLabel">
                 <property name="visible">True</property>
@@ -282,9 +262,6 @@
                 <property name="top-attach">3</property>
               </packing>
             </child>
-
-
-
           </object>
           <packing>
             <property name="expand">False</property>
@@ -298,8 +275,7 @@
             <property name="height-request">600</property>
             <property name="visible">True</property>
             <property name="can-focus">False</property>
-            
-
+            <signal name="scroll-event" handler="on_scroll_event" swapped="no"/>
           </object>
           <packing>
             <property name="expand">True</property>

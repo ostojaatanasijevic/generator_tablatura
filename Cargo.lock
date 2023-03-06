@@ -682,6 +682,7 @@ dependencies = [
  "clap",
  "csv",
  "fast-float",
+ "glib",
  "gtk",
  "num",
  "plotters",

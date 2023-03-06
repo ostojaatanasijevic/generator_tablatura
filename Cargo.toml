@@ -19,6 +19,7 @@ clap = { version = "4.1.6", features = ["derive"] }
 gtk = "0.17.0"
 cairo-rs = "0.17.0"
 realfft = "3.2.0"
+glib = "0.17.2"
 
 [dependencies.plotters]
 git = "https://github.com/plotters-rs/plotters"
