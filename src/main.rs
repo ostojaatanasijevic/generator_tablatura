@@ -108,12 +108,54 @@ struct PlottingState {
 }
 
 impl PlottingState {
+    fn attenuate<'a>(&mut self) {
+        self.data_att = harmonics::attenuate_harmonics(
+            &self.data_orig,
+            &self.all_notes,
+            self.attenuation_factor as f32,
+            self.attenuation_power_factor as f32,
+        );
+    }
+}
+
+impl PlottingState {
+    fn schmitt<'a>(&mut self) {
+        self.data_out = post_processing::schmitt(
+            &self.data_att,
+            self.high_threshold as f32,
+            self.low_threshold as f32,
+        );
+    }
+}
+
+impl PlottingState {
+    fn extend<'a>(&mut self) {
+        self.args.seek_offset = self.time_processed as f32;
+        self.time_processed += self.args.sec_to_run as f64;
+
+        let new_chunk = cached_process_song(
+            &self.song,
+            &self.args,
+            &self.all_notes,
+            &self.h,
+            &self.window_fn,
+            &self.sample_notes,
+        );
+
+        weld_note_intensity(&mut self.data_orig, new_chunk);
+        self.attenuate();
+        self.schmitt();
+    }
+}
+
+impl PlottingState {
     fn plot<'a, DB: DrawingBackend + 'a>(
         &self,
         backend: DB,
         data: &Vec<Vec<Vec<f32>>>,
         data_out: &Vec<Vec<Vec<f32>>>,
     ) -> Result<(), Box<dyn Error + 'a>> {
+        let mut max: f32 = 0.1;
         let samples_per_sec = data[0][0].len() as f64 / self.time_processed;
         let time_offset = (self.time_offset * samples_per_sec as f64) as usize;
 
@@ -122,18 +164,13 @@ impl PlottingState {
             data[0][0].len(),
         );
 
-        let mut max: f32 = 0.1;
-
         let root = backend.into_drawing_area();
-
         root.fill(&WHITE)?;
 
         let mut chart = ChartBuilder::on(&root)
             .set_label_area_size(LabelAreaPosition::Left, 140)
             .set_label_area_size(LabelAreaPosition::Bottom, 60)
             .build_cartesian_2d(0..end_point - time_offset, 0.0..max)?;
-
-        println!("Reploting");
 
         chart
             .configure_mesh()
@@ -264,24 +301,6 @@ fn build_ui(app: &gtk::Application, args: &cli::Args) {
             });
         };
 
-    let att =
-        |state: &mut PlottingState,
-         ploting_state: Box<dyn Fn(&mut PlottingState) -> &mut PlottingState + 'static>| {
-            let data_att = harmonics::attenuate_harmonics(
-                &state.data_orig,
-                &state.all_notes,
-                state.attenuation_factor as f32,
-                state.attenuation_power_factor as f32,
-            );
-
-            ploting_state(&mut *state).data_att = data_att;
-            ploting_state(&mut *state).data_out = post_processing::schmitt(
-                &state.data_att,
-                state.high_threshold as f32,
-                state.low_threshold as f32,
-            );
-        };
-
     let handle_key =
         |window: &gtk::Window,
          ploting_state: Box<dyn Fn(&mut PlottingState) -> &mut PlottingState + 'static>| {
@@ -316,22 +335,7 @@ fn build_ui(app: &gtk::Application, args: &cli::Args) {
 
                 if (state.time_offset > state.time_processed - state.time_frame) {
                     let now = Instant::now();
-
-                    ploting_state(&mut *state).args.seek_offset = state.time_processed as f32;
-                    ploting_state(&mut *state).time_processed += state.args.sec_to_run as f64;
-
-                    let new_chunk = cached_process_song(
-                        &state.song,
-                        &state.args,
-                        &state.all_notes,
-                        &state.h,
-                        &state.window_fn,
-                        &state.sample_notes,
-                    );
-
-                    weld_note_intensity(&mut ploting_state(&mut *state).data_orig, new_chunk);
-                    att(&mut state, Box::new(|s| s));
-
+                    state.extend();
                     println!("Processing took {} seconds", now.elapsed().as_secs_f32());
                 }
 
@@ -349,7 +353,8 @@ fn build_ui(app: &gtk::Application, args: &cli::Args) {
             slider.connect_value_changed(move |target| {
                 let mut state = app_state.borrow_mut();
                 *factor(&mut *state) = target.value();
-                att(&mut state, Box::new(|s| s));
+                state.attenuate();
+                state.schmitt();
                 drawing_area.queue_draw();
             });
         };
@@ -364,12 +369,7 @@ fn build_ui(app: &gtk::Application, args: &cli::Args) {
             what.connect_value_changed(move |target| {
                 let mut state = app_state.borrow_mut();
                 *factor(&mut *state) = target.value();
-                *how(&mut *state) = post_processing::schmitt(
-                    &state.data_att,
-                    state.high_threshold as f32,
-                    state.low_threshold as f32,
-                );
-
+                state.schmitt();
                 drawing_area.queue_draw();
             });
         };
