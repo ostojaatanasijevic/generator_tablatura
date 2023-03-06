@@ -15,6 +15,12 @@ mod post_processing;
 use std::cell::RefCell;
 use std::rc::Rc;
 
+use std::sync::mpsc;
+
+use rodio::buffer::SamplesBuffer;
+use rodio::source::Source;
+use rodio::{Decoder, OutputStream, Sink};
+
 use cairo::glib::Receiver;
 use gtk::builders::ScrollbarBuilder;
 use gtk::ffi::gtk_widget_set_events;
@@ -41,7 +47,6 @@ use std::fs::File;
 use std::io::IoSlice;
 use std::io::Write;
 use std::path::Path;
-use std::sync::mpsc;
 use std::thread;
 use std::time::Instant;
 
@@ -69,9 +74,48 @@ pub const HERZ: [&str; 44] = [
     "698.46", "739.99", "783.99", "830.61", "880.0", "932.33", "987.77",
 ];
 
+pub struct PlayerData {
+    seek: f32,
+    playing: bool,
+}
+
 //ADD THREAD DETECTION FOR INDIVIDUAL CPUs
 fn main() {
     let args = cli::Args::parse();
+    /*
+        let song = fourier::open_song(&args.file_name);
+        let (_stream, stream_handle) = OutputStream::try_default().unwrap();
+        let sink = Sink::try_new(&stream_handle).unwrap();
+        let song = SamplesBuffer::new(1, 44100, song);
+        sink.append(song);
+    */
+
+    let (tx, rx): (
+        std::sync::mpsc::Sender<PlayerData>,
+        std::sync::mpsc::Receiver<PlayerData>,
+    ) = mpsc::channel();
+
+    let name = args.file_name.clone();
+    thread::spawn(move || {
+        let song = fourier::open_song(&name);
+        let (_stream, stream_handle) = OutputStream::try_default().unwrap();
+        let sink = Sink::try_new(&stream_handle).unwrap();
+        let song = SamplesBuffer::new(1, 44100, song);
+        sink.append(song);
+        while true {
+            let message = rx.recv().unwrap();
+            match message.playing {
+                true => {
+                    sink.play();
+                    println!("roger that: staing alive");
+                }
+                false => {
+                    sink.pause();
+                    println!("roger that: stopping ");
+                }
+            }
+        }
+    });
 
     let application = gtk::Application::new(
         Some("ostojin.generator.tablatura.realdank"),
@@ -79,7 +123,8 @@ fn main() {
     );
 
     application.connect_activate(move |app| {
-        build_ui(app, &args);
+        let tx = tx.clone();
+        build_ui(app, &args, tx);
     });
 
     application.run_with_args(&[""]);
@@ -220,7 +265,7 @@ impl PlottingState {
     }
 }
 
-fn build_ui(app: &gtk::Application, args: &cli::Args) {
+fn build_ui(app: &gtk::Application, args: &cli::Args, tx: std::sync::mpsc::Sender<PlayerData>) {
     let args = args.clone();
     let song = fourier::open_song(&args.file_name);
     let h = post_processing::lp_filter(args.w, args.lenght_fir);
@@ -333,8 +378,28 @@ fn build_ui(app: &gtk::Application, args: &cli::Args) {
                     _ => state.time_offset,
                 };
 
+                match keyval {
+                    114 => {
+                        tx.send(PlayerData {
+                            seek: 10.0,
+                            playing: false,
+                        });
+                        println!("stopping!");
+                    }
+                    _ => {
+                        tx.send(PlayerData {
+                            seek: 10.0,
+                            playing: true,
+                        });
+                        println!("staying alive!");
+                    }
+                };
+
+                let song = state.song.iter().map(|x| *x as f32).collect::<Vec<f32>>();
+
                 if (state.time_offset > state.time_processed - state.time_frame) {
                     let now = Instant::now();
+
                     state.extend();
                     println!("Processing took {} seconds", now.elapsed().as_secs_f32());
                 }
