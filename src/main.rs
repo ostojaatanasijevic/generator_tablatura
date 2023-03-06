@@ -189,6 +189,7 @@ fn build_ui(app: &gtk::Application, args: &cli::Args) {
     let h = post_processing::lp_filter(args.w, args.lenght_fir);
     let window_fn = fourier::calculate_window_function(args.nfft, &args.window_function); // blackman je bolji od hann
     let sample_notes = freq_generator::open_sample_notes(args.nfft);
+    //let sample_notes = fourier::open_midi_notes(args.nfft); //midi notes
     let mut all_notes = harmonics::generate_all_notes();
     harmonics::generate_note_network(&mut all_notes, &sample_notes, &window_fn, args.nfft);
     harmonics::cross_polinate(&mut all_notes, &sample_notes, &window_fn, args.nfft);
@@ -201,8 +202,8 @@ fn build_ui(app: &gtk::Application, args: &cli::Args) {
 
     window.set_title("Generator tablatura");
 
-    let drawing_area: gtk::DrawingArea = builder.object("MainDrawingArea").unwrap();
     // Kreiranje instanci slidera iz ui.glade fajla
+    let drawing_area: gtk::DrawingArea = builder.object("MainDrawingArea").unwrap();
     let low_threshold_slider = builder.object::<gtk::Scale>("LowThresholdSlider").unwrap();
     let high_threshold_slider = builder.object::<gtk::Scale>("HighThresholdSlider").unwrap();
     let string_slider = builder.object::<gtk::Scale>("StringSlider").unwrap();

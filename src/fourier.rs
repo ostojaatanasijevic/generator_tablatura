@@ -137,20 +137,14 @@ pub fn open_midi_note(note: &Note) -> Vec<i16> {
     data.to_vec()
 }
 
-pub fn open_sample_notes(sample_len: usize) -> Vec<Vec<Vec<i16>>> {
+pub fn open_midi_notes(sample_len: usize) -> Vec<Vec<Vec<i16>>> {
     let start: usize = 0;
     let stop: usize = BROJ_PRAGOVA;
     let mut samples_fft = vec![vec![Vec::new(); stop - start]; 6];
 
     for string in 0..STRINGS.len() {
         for note in start..stop {
-            //use format!
-            //let filename = format!("midi/{}/{}{}.wav", STRINGS[string], STRINGS[string], &note);
-
-            let filename = format!(
-                "pure_sine_samples/audiocheck.net_sin_{}Hz_-3dBFS_3s.wav",
-                HERZ[OFFSET_TABLE[5 - string] + note]
-            );
+            let filename = format!("midi/{}/{}{}.wav", STRINGS[string], STRINGS[string], &note);
 
             let mut file = File::open(Path::new(&filename))
                 .expect(&format!("Can't open file named {filename}"));
