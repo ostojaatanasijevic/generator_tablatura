@@ -143,56 +143,41 @@ impl PlottingState {
             .y_labels(0)
             .draw()?;
 
-        for of in 0..1 {
-            for note in 0..data[0].len() {
-                chart.draw_series(
-                    AreaSeries::new(
-                        (0..)
-                            .zip(
-                                data[self.current_string as usize + of][note]
-                                    [time_offset..end_point]
-                                    .iter(),
-                            )
-                            .map(|(x, y)| {
-                                (x, *y / 20.0 * self.y_slider as f32 + note as f32 / 200.0)
-                            }),
-                        note as f32 / 200.0,
-                        &BLUE.mix(0.2),
-                    )
-                    .border_style(&BLUE),
-                )?;
+        for note in 0..data[0].len() {
+            chart.draw_series(
+                AreaSeries::new(
+                    (0..)
+                        .zip(
+                            data[self.current_string as usize][note][time_offset..end_point].iter(),
+                        )
+                        .map(|(x, y)| (x, *y / 20.0 * self.y_slider as f32 + note as f32 / 200.0)),
+                    note as f32 / 200.0,
+                    &BLUE.mix(0.2),
+                )
+                .border_style(&BLUE),
+            )?;
 
-                chart.draw_series(
-                    AreaSeries::new(
-                        (0..)
-                            .zip(
-                                data_out[self.current_string as usize + of][note]
-                                    [time_offset..end_point]
-                                    .iter(),
-                            )
-                            .map(|(x, y)| {
-                                (x, *y / 20.0 * self.y_slider as f32 + note as f32 / 200.0)
-                            }),
-                        note as f32 / 200.0,
-                        &RED.mix(0.2),
-                    )
-                    .border_style(&RED),
-                )?;
+            chart.draw_series(
+                AreaSeries::new(
+                    (0..)
+                        .zip(
+                            data_out[self.current_string as usize][note][time_offset..end_point]
+                                .iter(),
+                        )
+                        .map(|(x, y)| (x, *y / 20.0 * self.y_slider as f32 + note as f32 / 200.0)),
+                    note as f32 / 200.0,
+                    &RED.mix(0.2),
+                )
+                .border_style(&RED),
+            )?;
 
-                let mut x = 10;
-                let y = ((20 - note) as i32 * root.get_pixel_range().1.end as i32 / 21) as i32
-                    + of as i32 * root.get_pixel_range().1.end;
-
-                if y > 0 {
-                    root.draw(&Text::new(
-                        misc::index_to_note(note + OFFSET_TABLE[5 - self.current_string as usize]),
-                        (x, y),
-                        ("sans-serif", 15.0).into_font(),
-                    ));
-                }
-            }
+            let y = ((20 - note) as i32 * root.get_pixel_range().1.end as i32 / 21) as i32;
+            root.draw(&Text::new(
+                misc::index_to_note(note + OFFSET_TABLE[5 - self.current_string as usize]),
+                (10, y),
+                ("sans-serif", 15.0).into_font(),
+            ));
         }
-
         root.present()?;
         Ok(())
     }
@@ -257,10 +242,10 @@ fn build_ui(app: &gtk::Application, args: &cli::Args) {
     let state_cloned = app_state.clone();
 
     drawing_area.connect_draw(move |widget, cr| {
+        let w = widget.allocated_width() as u32;
+        let h = widget.allocated_height() as u32;
         let state = state_cloned.borrow().clone();
-        let w = widget.allocated_width();
-        let h = widget.allocated_height();
-        let backend = CairoBackend::new(cr, (w as u32, h as u32)).unwrap();
+        let backend = CairoBackend::new(cr, (w, h)).unwrap();
         state
             .plot(backend, &state.data_att, &state.data_out)
             .unwrap();
@@ -281,19 +266,19 @@ fn build_ui(app: &gtk::Application, args: &cli::Args) {
     let att =
         |state: &mut PlottingState,
          ploting_state: Box<dyn Fn(&mut PlottingState) -> &mut PlottingState + 'static>| {
-            let temp = harmonics::attenuate_harmonics(
+            let data_att = harmonics::attenuate_harmonics(
                 &state.data_orig,
                 &state.all_notes,
                 state.attenuation_factor as f32,
                 state.attenuation_power_factor as f32,
             );
 
+            ploting_state(&mut *state).data_att = data_att;
             ploting_state(&mut *state).data_out = post_processing::schmitt(
-                &temp,
+                &state.data_att,
                 state.high_threshold as f32,
                 state.low_threshold as f32,
             );
-            ploting_state(&mut *state).data_att = temp;
         };
 
     let handle_key =
@@ -303,63 +288,56 @@ fn build_ui(app: &gtk::Application, args: &cli::Args) {
             let drawing_area = drawing_area.clone();
 
             window.connect_key_press_event(move |a, b| {
-                let refresh: Vec<u16> = vec![113, 114, 116, 111];
-                let mut state = app_state.borrow_mut();
                 let keyval = b.keycode().unwrap();
+                let mut state = app_state.borrow_mut();
 
-                if !refresh.contains(&keyval) {
+                ploting_state(&mut *state).current_string = match keyval {
+                    111 => max(state.current_string as i32 - 1, 0) as f64, // up arrow key pressed
+                    116 => min(state.current_string as i32 + 1, 5) as f64, // down arrow key
+                    _ => state.current_string,
+                };
+
+                if ![113, 114].contains(&keyval) {
+                    if [111, 116].contains(&keyval) {
+                        drawing_area.queue_draw();
+                    }
                     return Inhibit(true);
                 }
 
-                match keyval {
-                    111 => {
-                        ploting_state(&mut *state).current_string =
-                            max(state.current_string as i32 - 1, 0) as f64
-                    }
-                    116 => {
-                        ploting_state(&mut *state).current_string =
-                            min(state.current_string as i32 + 1, 5) as f64
-                    }
-                    _ => println!("idc"),
-                }
-
-                let off: i32 = match keyval {
-                    113 => -1,
-                    114 => 1,
-                    _ => 0,
+                ploting_state(&mut *state).time_offset = match keyval {
+                    113 => max(state.time_offset as i32 - 1, 0) as f64, // left arrow key pressed
+                    114 => min(
+                        state.time_offset as i32 + 1,
+                        state.song.len() as i32 / 44100,
+                    ) as f64, // right arrow key pressed
+                    _ => state.time_offset,
                 };
 
-                if keyval == 113 || keyval == 114 {
-                    ploting_state(&mut *state).time_offset = min(
-                        max(state.time_offset as i32 + off, 0),
-                        state.song.len() as i32 / 44100,
-                    ) as f64;
+                if (state.time_offset > state.time_processed - state.time_frame) {
+                    let now = Instant::now();
 
-                    if (state.time_offset + off as f64 > state.time_processed - state.time_frame) {
-                        let now = Instant::now();
-                        ploting_state(&mut *state).args.seek_offset = state.time_processed as f32;
-                        ploting_state(&mut *state).time_processed += state.args.sec_to_run as f64;
-                        let temp = cached_process_song(
-                            &state.song,
-                            &state.args,
-                            &state.all_notes,
-                            &state.h,
-                            &state.window_fn,
-                            &state.sample_notes,
-                        );
+                    ploting_state(&mut *state).args.seek_offset = state.time_processed as f32;
+                    ploting_state(&mut *state).time_processed += state.args.sec_to_run as f64;
 
-                        weld_note_intensity(&mut ploting_state(&mut *state).data_orig, temp);
-                        att(&mut state, Box::new(|s| s));
-                        println!("Processing took {} seconds", now.elapsed().as_secs_f32());
-                    }
+                    let new_chunk = cached_process_song(
+                        &state.song,
+                        &state.args,
+                        &state.all_notes,
+                        &state.h,
+                        &state.window_fn,
+                        &state.sample_notes,
+                    );
+
+                    weld_note_intensity(&mut ploting_state(&mut *state).data_orig, new_chunk);
+                    att(&mut state, Box::new(|s| s));
+
+                    println!("Processing took {} seconds", now.elapsed().as_secs_f32());
                 }
 
                 drawing_area.queue_draw();
                 Inhibit(true)
             });
         };
-
-    handle_key(&window, Box::new(|s| s));
 
     let recalculate_attenuation =
         |slider: &gtk::Scale,
@@ -395,9 +373,8 @@ fn build_ui(app: &gtk::Application, args: &cli::Args) {
             });
         };
 
-    handle_change(&string_slider, Box::new(|s| &mut s.current_string));
+    handle_key(&window, Box::new(|s| s));
     handle_change(&time_frame_slider, Box::new(|s| &mut s.time_frame));
-
     handle_change(&y_scale_slider, Box::new(|s| &mut s.y_slider));
 
     recalculate_attenuation(
