@@ -85,13 +85,6 @@ pub struct PlayerData {
 //ADD THREAD DETECTION FOR INDIVIDUAL CPUs
 fn main() {
     let args = cli::Args::parse();
-    /*
-        let song = fourier::open_song(&args.file_name);
-        let (_stream, stream_handle) = OutputStream::try_default().unwrap();
-        let sink = Sink::try_new(&stream_handle).unwrap();
-        let song = SamplesBuffer::new(1, 44100, song);
-        sink.append(song);
-    */
 
     let (tx, rx): (
         std::sync::mpsc::Sender<PlayerData>,
@@ -105,28 +98,20 @@ fn main() {
         let sink = Sink::try_new(&stream_handle).unwrap();
         while true {
             let message = rx.recv().unwrap();
-            match message.toggle {
-                false => match message.playing {
-                    true => {
-                        sink.stop();
-                        let sample = (message.seek * 44100.0) as usize;
-                        let song = SamplesBuffer::new(1, 44100, song_data[sample..].to_vec());
-                        sink.append(song);
-                        println!("roger that: staing alive");
-                    }
-                    false => {
-                        sink.pause();
-                        println!("roger that: stopping ");
-                    }
-                },
+            match message.playing {
                 true => {
-                    if sink.is_paused() {
-                        sink.play()
-                    } else {
-                        sink.pause()
-                    }
+                    let sample = (message.seek * 44100.0) as usize;
+                    let song = SamplesBuffer::new(1, 44100, song_data[sample..].to_vec());
+                    sink.stop();
+                    sink.append(song);
+                    sink.play();
+                    println!("roger that: starting playing at {}", message.seek);
                 }
-            }
+                false => {
+                    sink.pause();
+                    println!("roger that: stopping ");
+                }
+            };
         }
     });
 
@@ -163,7 +148,6 @@ struct PlottingState {
     high_threshold: f64,
     args: cli::Args,
     time_processed: f64,
-    time_playing: f64,
     instant: Instant,
     playing_data: PlayerData,
 }
@@ -282,23 +266,18 @@ impl PlottingState {
             ));
         }
 
-        chart.draw_series(LineSeries::new(
-            (0..)
-                .zip(vec![400.0, 1200.0].iter())
-                .map(|(x, y)| (x * 300 + 300, *y)),
-            &BLUE.mix(1.0),
-        ))?;
-
-        let cursor = 140
-            + (((self.time_playing - self.time_offset) / self.time_frame)
+        let mut cursor = 140
+            + (((self.playing_data.seek as f64 - self.time_offset) / self.time_frame)
                 * (root.get_pixel_range().0.end - 140) as f64) as i32;
-        root.draw(&Rectangle::new(
-            [
-                (cursor, root.get_pixel_range().1.start),
-                (cursor, root.get_pixel_range().1.end - LABEL_HEIGHT + 5),
-            ],
-            &RED,
-        ))?;
+        if cursor > 140 {
+            root.draw(&Rectangle::new(
+                [
+                    (cursor, root.get_pixel_range().1.start),
+                    (cursor, root.get_pixel_range().1.end - LABEL_HEIGHT + 5),
+                ],
+                &RED,
+            ))?;
+        }
 
         root.present()?;
         Ok(())
@@ -359,7 +338,6 @@ fn build_ui(app: &gtk::Application, args: &cli::Args, tx: std::sync::mpsc::Sende
         data_out: data.clone(),
         high_threshold: 1.0,
         low_threshold: 0.0,
-        time_playing: 0.0,
         data_orig: data,
         sample_notes,
         window_fn,
@@ -372,10 +350,8 @@ fn build_ui(app: &gtk::Application, args: &cli::Args, tx: std::sync::mpsc::Sende
     }));
 
     window.set_application(Some(app));
-    let window_height = window.allocated_height() as f64;
 
     let state_cloned = app_state.clone();
-
     drawing_area.connect_draw(move |widget, cr| {
         let w = widget.allocated_width() as u32;
         let h = widget.allocated_height() as u32;
@@ -409,19 +385,16 @@ fn build_ui(app: &gtk::Application, args: &cli::Args, tx: std::sync::mpsc::Sende
                 let mut state = app_state.borrow_mut();
 
                 //linear interpolation:
-                let mut time_cliked = state.time_offset
+                let time_cliked = state.time_offset
                     + (b.coords().unwrap().0 - LABEL_WIDTH)
                         / (a.allocated_width() as f64 - LABEL_WIDTH)
                         * state.time_frame;
 
-                ploting_state(&mut *state).time_playing = time_cliked;
+                let mut playing_data = state.playing_data.clone();
+                playing_data.seek = time_cliked as f32;
 
-                println!("Time is: {}", time_cliked);
-                tx_clicked.send(PlayerData {
-                    seek: time_cliked as f32,
-                    playing: true,
-                    toggle: false,
-                });
+                tx_clicked.send(playing_data.clone());
+                ploting_state(&mut *state).playing_data = playing_data;
 
                 drawing_area.queue_draw();
                 Inhibit(false)
@@ -439,12 +412,16 @@ fn build_ui(app: &gtk::Application, args: &cli::Args, tx: std::sync::mpsc::Sende
                 let mut state = app_state.borrow_mut();
 
                 if keyval == 65 {
-                    tx.send(PlayerData {
-                        seek: 0.0,
-                        playing: false,
-                        toggle: true,
-                    });
+                    let mut playing_data = state.playing_data.clone();
+                    match state.playing_data.playing {
+                        true => playing_data.playing = false,
+                        false => playing_data.playing = true,
+                    };
+
+                    tx.send(playing_data.clone());
+                    ploting_state(&mut *state).playing_data = playing_data;
                 }
+
                 ploting_state(&mut *state).current_string = match keyval {
                     111 => max(state.current_string as i32 - 1, 0) as f64, // up arrow key pressed
                     116 => min(state.current_string as i32 + 1, 5) as f64, // down arrow key
@@ -506,24 +483,26 @@ fn build_ui(app: &gtk::Application, args: &cli::Args, tx: std::sync::mpsc::Sende
             });
         };
 
-    let refresh_screen = |window: &gtk::Window,
-                          ploting_state: Box<
-        dyn Fn(&mut PlottingState) -> &mut PlottingState + 'static,
-    >| {
-        let app_state = app_state.clone();
-        let drawing_area = drawing_area.clone();
+    let refresh_screen =
+        |window: &gtk::Window,
+         ploting_state: Box<dyn Fn(&mut PlottingState) -> &mut PlottingState + 'static>| {
+            let app_state = app_state.clone();
+            let drawing_area = drawing_area.clone();
 
-        window.add_tick_callback(move |a, b| {
-            let mut state = app_state.borrow_mut();
-            drawing_area.queue_draw();
-            println!("fas");
-            println!("{}", state.instant.elapsed().as_secs_f32());
-            ploting_state(&mut *state).time_playing += state.instant.elapsed().as_secs_f32() as f64;
+            window.add_tick_callback(move |a, b| {
+                let mut state = app_state.borrow_mut();
+                //println!("{}", state.instant.elapsed().as_secs_f32());
 
-            ploting_state(&mut *state).instant = Instant::now();
-            cairo::glib::Continue(true)
-        });
-    };
+                if state.playing_data.playing {
+                    ploting_state(&mut *state).playing_data.seek +=
+                        state.instant.elapsed().as_secs_f32();
+
+                    drawing_area.queue_draw();
+                }
+                ploting_state(&mut *state).instant = Instant::now();
+                cairo::glib::Continue(true)
+            });
+        };
 
     refresh_screen(&window, Box::new(|s| s));
     handle_key(&window, Box::new(|s| s));
