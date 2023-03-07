@@ -102,6 +102,7 @@ fn main() {
         let sink = Sink::try_new(&stream_handle).unwrap();
         let song = SamplesBuffer::new(1, 44100, song);
         sink.append(song);
+        sink.pause();
         while true {
             let message = rx.recv().unwrap();
             match message.playing {
@@ -225,6 +226,13 @@ impl PlottingState {
             .y_labels(0)
             .draw()?;
 
+        chart.draw_series(LineSeries::new(
+            (0..)
+                .zip(vec![100.0, 200.0].iter())
+                .map(|(x, y)| (x * 300 + 300, *y)),
+            &RED.mix(0.2),
+        ))?;
+
         for note in 0..data[0].len() {
             chart.draw_series(
                 AreaSeries::new(
@@ -281,7 +289,9 @@ fn build_ui(app: &gtk::Application, args: &cli::Args, tx: std::sync::mpsc::Sende
     let builder = gtk::Builder::from_string(GLADE_UI_SOURCE);
     let window = builder.object::<gtk::Window>("MainWindow").unwrap();
     let main_box = builder.object::<gtk::Box>("MainBox").unwrap();
+    let top_grid = builder.object::<gtk::Grid>("TopGrid").unwrap();
 
+    let top_grid_height = top_grid.allocated_size().0.height();
     window.set_title("Generator tablatura");
 
     // Kreiranje instanci slidera iz ui.glade fajla
@@ -343,6 +353,22 @@ fn build_ui(app: &gtk::Application, args: &cli::Args, tx: std::sync::mpsc::Sende
                 let mut state = app_state.borrow_mut();
                 *how(&mut *state) = target.value();
                 drawing_area.queue_draw();
+            });
+        };
+
+    let handle_click =
+        |window: &gtk::Window,
+         ploting_state: Box<dyn Fn(&mut PlottingState) -> &mut PlottingState + 'static>| {
+            let app_state = app_state.clone();
+            let drawing_area = drawing_area.clone();
+
+            window.connect_button_press_event(move |a, b| {
+                println!("New...");
+                println!("Grid height: {}", top_grid_height);
+                println!("{:?}", b.coords());
+
+                drawing_area.queue_draw();
+                Inhibit(false)
             });
         };
 
@@ -440,6 +466,7 @@ fn build_ui(app: &gtk::Application, args: &cli::Args, tx: std::sync::mpsc::Sende
         };
 
     handle_key(&window, Box::new(|s| s));
+    handle_click(&window, Box::new(|s| s));
     handle_change(&time_frame_slider, Box::new(|s| &mut s.time_frame));
     handle_change(&y_scale_slider, Box::new(|s| &mut s.y_slider));
 

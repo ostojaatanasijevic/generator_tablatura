@@ -57,7 +57,7 @@
         <signal name="scroll-event" handler="on_scroll" swapped="no"/>
         <child>
           <!-- n-columns=4 n-rows=4 -->
-          <object class="GtkGrid">
+          <object class="GtkGrid" id="TopGrid">
             <property name="visible">True</property>
             <property name="can-focus">False</property>
             <property name="column-homogeneous">True</property>
