@@ -854,6 +854,7 @@ dependencies = [
  "clap",
  "csv",
  "fast-float",
+ "gdk",
  "glib",
  "gtk",
  "num",

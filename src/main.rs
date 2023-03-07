@@ -15,6 +15,7 @@ mod post_processing;
 use std::cell::RefCell;
 use std::rc::Rc;
 
+use gdk::FrameClock;
 use std::sync::mpsc;
 
 use rodio::buffer::SamplesBuffer;
@@ -74,6 +75,7 @@ pub const HERZ: [&str; 44] = [
     "698.46", "739.99", "783.99", "830.61", "880.0", "932.33", "987.77",
 ];
 
+#[derive(Clone)]
 pub struct PlayerData {
     seek: f32,
     playing: bool,
@@ -162,6 +164,8 @@ struct PlottingState {
     args: cli::Args,
     time_processed: f64,
     time_playing: f64,
+    instant: Instant,
+    playing_data: PlayerData,
 }
 
 impl PlottingState {
@@ -337,6 +341,12 @@ fn build_ui(app: &gtk::Application, args: &cli::Args, tx: std::sync::mpsc::Sende
         .object::<gtk::Scale>("AttenuationPowerFactorSlider")
         .unwrap();
 
+    let mut playing_data = PlayerData {
+        seek: 0.0,
+        playing: false,
+        toggle: false,
+    };
+
     let app_state = Rc::new(RefCell::new(PlottingState {
         attenuation_power_factor: attenuation_power_factor_slider.value(),
         attenuation_factor: attenuation_factor_slider.value(),
@@ -356,6 +366,8 @@ fn build_ui(app: &gtk::Application, args: &cli::Args, tx: std::sync::mpsc::Sende
         all_notes,
         song,
         args,
+        playing_data,
+        instant: Instant::now(),
         h,
     }));
 
@@ -494,6 +506,26 @@ fn build_ui(app: &gtk::Application, args: &cli::Args, tx: std::sync::mpsc::Sende
             });
         };
 
+    let refresh_screen = |window: &gtk::Window,
+                          ploting_state: Box<
+        dyn Fn(&mut PlottingState) -> &mut PlottingState + 'static,
+    >| {
+        let app_state = app_state.clone();
+        let drawing_area = drawing_area.clone();
+
+        window.add_tick_callback(move |a, b| {
+            let mut state = app_state.borrow_mut();
+            drawing_area.queue_draw();
+            println!("fas");
+            println!("{}", state.instant.elapsed().as_secs_f32());
+            ploting_state(&mut *state).time_playing += state.instant.elapsed().as_secs_f32() as f64;
+
+            ploting_state(&mut *state).instant = Instant::now();
+            cairo::glib::Continue(true)
+        });
+    };
+
+    refresh_screen(&window, Box::new(|s| s));
     handle_key(&window, Box::new(|s| s));
     handle_click(&window, Box::new(|s| s));
     handle_change(&time_frame_slider, Box::new(|s| &mut s.time_frame));
