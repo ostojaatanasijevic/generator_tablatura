@@ -334,3 +334,53 @@ pub fn interlaced_convolution<T: unsinkable, U: unsinkable>(
 
     out
 }
+
+pub fn interlaced_realfft<T: unsinkable>(
+    input_large: &Vec<T>,
+    window: &Vec<f32>,
+    sample_len: usize,
+) -> Vec<Vec<Vec<f32>>> {
+    //check power of 2
+
+    let nfft = sample_len;
+    let inter_size = 512;
+    let mut realplanner = RealFftPlanner::<f32>::new();
+    let fft = realplanner.plan_fft_forward(nfft);
+
+    //PROCESS SMALL CHUNK
+    let mut h = vec![Complex { re: 0.0, im: 0.0 }; nfft / 2 + 1];
+    let mut h_r = vec![0.0; nfft];
+
+    let chunk_lenght = input_large.len();
+    let num_of_chunks: usize = chunk_lenght / inter_size - nfft / inter_size;
+
+    let mut out: Vec<Vec<Vec<f32>>> = vec![vec![Vec::new(); 20]; 6];
+
+    for c in 0..num_of_chunks {
+        let mut pesma_fft_r = vec![0.0; nfft];
+        let mut pesma_fft = vec![Complex { re: 0.0, im: 0.0 }; nfft / 2 + 1];
+
+        for i in 0..sample_len {
+            pesma_fft_r[i] = (input_large[c * inter_size + i].to_float()) * window[i] / 65536.0;
+        }
+
+        fft.process(&mut pesma_fft_r, &mut pesma_fft);
+        let product: Vec<f32> = pesma_fft.iter().map(|x| x.norm().abs()).collect();
+
+        for string in 0..6 {
+            for note in 0..20 {
+                let freq = HERZ[OFFSET_TABLE[5 - string] + note]
+                    .parse::<f32>()
+                    .unwrap();
+                let index = freq_to_bin(freq, nfft);
+
+                out[string][note].push(product[index] / 2000.0);
+            }
+        }
+    }
+    out
+}
+
+pub fn freq_to_bin(freq: f32, sample_len: usize) -> usize {
+    (freq / 44100.0 * sample_len as f32) as usize
+}

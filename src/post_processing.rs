@@ -104,11 +104,11 @@ pub fn hp_filter(fp: f32, n: usize) -> Vec<f32> {
 
     for t in 0..n - 1 {
         let m = n - t;
-        out[t] = ((3.14 * m as f32).sin() - (3.14 * fp * m as f32).sin()) / (m as f32 * 3.14)
+        out[t] = ((PI * m as f32).sin() - (PI * fp * m as f32).sin()) / (m as f32 * PI)
     }
     out[n] = 1.0 - fp;
     for t in 1..n {
-        out[t + n] = ((3.14 * t as f32).sin() - (3.14 * fp * t as f32).sin()) / (t as f32 * 3.14)
+        out[t + n] = ((PI * t as f32).sin() - (PI * fp * t as f32).sin()) / (t as f32 * PI)
     }
 
     out

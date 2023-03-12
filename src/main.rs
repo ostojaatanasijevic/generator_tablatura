@@ -230,13 +230,11 @@ impl PlottingState {
             .y_labels(0)
             .draw()?;
 
-        for note in 0..data[0].len() {
+        for (note, note_data) in data[self.current_string as usize].iter().enumerate() {
             chart.draw_series(
                 AreaSeries::new(
                     (0..)
-                        .zip(
-                            data[self.current_string as usize][note][time_offset..end_point].iter(),
-                        )
+                        .zip(note_data[time_offset..end_point].iter())
                         .map(|(x, y)| (x, *y / 20.0 * self.y_slider as f32 + note as f32 / 200.0)),
                     note as f32 / 200.0,
                     &BLUE.mix(0.2),
@@ -309,9 +307,7 @@ fn build_ui(app: &gtk::Application, args: &cli::Args, tx: std::sync::mpsc::Sende
     let drawing_area: gtk::DrawingArea = builder.object("MainDrawingArea").unwrap();
     let low_threshold_slider = builder.object::<gtk::Scale>("LowThresholdSlider").unwrap();
     let high_threshold_slider = builder.object::<gtk::Scale>("HighThresholdSlider").unwrap();
-    let string_slider = builder.object::<gtk::Scale>("StringSlider").unwrap();
     let time_frame_slider = builder.object::<gtk::Scale>("TimeFrameSlider").unwrap();
-    let time_slider = builder.object::<gtk::Scale>("TimeSlider").unwrap();
     let y_scale_slider = builder.object::<gtk::Scale>("YScaleSlider").unwrap();
     let attenuation_factor_slider = builder
         .object::<gtk::Scale>("AttenuationFactorSlider")
@@ -330,9 +326,9 @@ fn build_ui(app: &gtk::Application, args: &cli::Args, tx: std::sync::mpsc::Sende
         attenuation_power_factor: attenuation_power_factor_slider.value(),
         attenuation_factor: attenuation_factor_slider.value(),
         time_processed: args.sec_to_run as f64,
-        current_string: string_slider.value(),
+        current_string: 0.0,
         time_frame: time_frame_slider.value(),
-        time_offset: time_slider.value(),
+        time_offset: 0.0,
         y_slider: y_scale_slider.value(),
         data_att: data.clone(),
         data_out: data.clone(),
@@ -370,6 +366,9 @@ fn build_ui(app: &gtk::Application, args: &cli::Args, tx: std::sync::mpsc::Sende
             what.connect_value_changed(move |target| {
                 let mut state = app_state.borrow_mut();
                 *how(&mut *state) = target.value();
+                if (state.time_offset > state.time_processed - state.time_frame) {
+                    state.extend();
+                }
                 drawing_area.queue_draw();
             });
         };
@@ -411,6 +410,7 @@ fn build_ui(app: &gtk::Application, args: &cli::Args, tx: std::sync::mpsc::Sende
                 let keyval = b.keycode().unwrap();
                 let mut state = app_state.borrow_mut();
 
+                //spacebar pressed
                 if keyval == 65 {
                     let mut playing_data = state.playing_data.clone();
                     match state.playing_data.playing {
@@ -545,16 +545,16 @@ fn cached_process_song(
     sample_notes: &Vec<Vec<Vec<i16>>>,
 ) -> Vec<Vec<Vec<f32>>> {
     let song = fetch_song(song, args.seek_offset, args.sec_to_run);
-    //let mut note_intensity =
     fft::threaded_interlaced_convolution_realfft(&song, sample_notes, &window, &args)
-    //   let mut note_intensity = post_processing::threaded_fft_fir_filtering(note_intensity, &h, &args);
+    //fft::interlaced_realfft(&song, &window, args.nfft)
+
     //attenuate_neighbours(&note_intensity, &all_notes, 0.75, 1.0)
 }
 
 fn weld_note_intensity(first_part: &mut Vec<Vec<Vec<f32>>>, second_part: Vec<Vec<Vec<f32>>>) {
-    for wire in 0..first_part.len() {
-        for note in 0..first_part[0].len() {
-            first_part[wire][note].extend(second_part[wire][note].to_vec());
+    for (wire, wire_data) in second_part.iter().enumerate() {
+        for (note, note_data) in wire_data.iter().enumerate() {
+            first_part[wire][note].extend(note_data);
         }
     }
 }
