@@ -41,13 +41,13 @@ pub fn plot_data_norm(data: &Vec<Vec<Vec<f32>>>, prefix: &str, sec: f32, max_plo
 }
 
 pub fn plot_data(data: Vec<Vec<Complex<f32>>>) {
-    for note in 0..data.len() {
+    for (note, note_data) in data.iter().enumerate() {
         let mut filename = String::from("plots/");
         filename.push_str(&note.to_string());
         filename.push_str("_conv.png");
         draw_plot(
             &filename,
-            data[note].iter().map(|a| a.norm()).collect(),
+            note_data.iter().map(|a| a.norm()).collect(),
             T_RES as f32,
             1,
             0.0,
